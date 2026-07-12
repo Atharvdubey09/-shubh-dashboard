@@ -13,7 +13,6 @@ import {
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { doc, getDoc, setDoc, updateDoc, collection } from 'firebase/firestore'
 import { getFirebaseDb, getFirebaseAuth } from '@/lib/firebase'
-import { validateAndConsumeInvite } from '@/lib/firestore'
 
 interface AuthContextValue {
   user: User | null
@@ -72,18 +71,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
 
 
-          if (!dbUser && typeof window !== 'undefined') {
-            const inviteToken = localStorage.getItem('inviteToken')
-            if (inviteToken) {
-              try {
-                dbUser = await validateAndConsumeInvite(inviteToken, nextUser.displayName || '', emailLower)
-                localStorage.removeItem('inviteToken')
-              } catch (err: any) {
-                console.error('[Invite Error]:', err.message)
-                localStorage.removeItem('inviteToken')
-              }
-            }
-          }
 
           if (!dbUser || dbUser.status === 'Disabled') {
             const reason = !dbUser

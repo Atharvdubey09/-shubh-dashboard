@@ -35,8 +35,7 @@ import {
   removeFamily,
   createFamilyPayment,
   restoreStudent,
-  generateInviteToken,
-  validateAndConsumeInvite,
+  inviteUser,
   changeUserRole,
   disableUser,
   enableUser,
@@ -104,8 +103,7 @@ interface AppDataContextValue {
   deleteFamily: (familyId: string) => Promise<void>
   addFamilyPayment: (familyId: string, amount: number, date: string, paymentMode: any, allocationType: 'equal' | 'proportional' | 'manual', manualAllocations?: Record<string, number>, notes?: string) => Promise<void>
   recoverStudent: (studentId: string) => Promise<void>
-  generateInviteToken: (role: string, ownerEmail: string) => Promise<string>
-  validateAndConsumeInvite: (token: string, name: string, email: string) => Promise<any>
+  sendUserInvitation: (name: string, email: string, role: string, ownerEmail: string) => Promise<void>
   updateUserRole: (email: string, role: string, ownerEmail: string) => Promise<void>
   suspendUser: (email: string, ownerEmail: string) => Promise<void>
   unsuspendUser: (email: string, ownerEmail: string) => Promise<void>
@@ -350,8 +348,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       deleteFamily: async (familyId) => removeFamily(familyId),
       addFamilyPayment: async (familyId, amount, date, paymentMode, allocationType, manualAllocations, notes) => createFamilyPayment(familyId, amount, date, paymentMode, allocationType, manualAllocations, notes),
       recoverStudent: async (studentId) => restoreStudent(studentId),
-      generateInviteToken: async (role, ownerEmail) => generateInviteToken(role, ownerEmail),
-      validateAndConsumeInvite: async (token, name, email) => validateAndConsumeInvite(token, name, email),
+      sendUserInvitation: async (name, email, role, ownerEmail) => inviteUser(name, email, role, ownerEmail),
       updateUserRole: async (email, role, ownerEmail) => changeUserRole(email, role, ownerEmail),
       suspendUser: async (email, ownerEmail) => disableUser(email, ownerEmail),
       unsuspendUser: async (email, ownerEmail) => enableUser(email, ownerEmail),

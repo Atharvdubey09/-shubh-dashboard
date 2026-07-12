@@ -21,8 +21,8 @@ export default function UserManagementPage() {
   const [statusFilter, setStatusFilter] = useState('all')
 
   // Invite Form State
-  const [isInviteOpen, setIsInviteOpen] = useState(false)
-  const [inviteLink, setInviteLink] = useState('')
+  const [inviteName, setInviteName] = useState('')
+  const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('Admin')
   const [inviteError, setInviteError] = useState('')
   const [inviteBusy, setInviteBusy] = useState(false)
@@ -65,17 +65,23 @@ export default function UserManagementPage() {
   async function handleInviteSubmit(e: React.FormEvent) {
     e.preventDefault()
     setInviteError('')
+    if (!inviteName.trim()) return setInviteError('Name is required')
+    if (!inviteEmail.trim()) return setInviteError('Email is required')
 
     setInviteBusy(true)
     try {
-      const token = await generateInviteToken(inviteRole, user?.email || 'Owner')
-      const link = `${window.location.origin}/signup?token=${token}`
-      setInviteLink(link)
+      const { useAppData } = require('@/components/state/app-data-provider')
+      const { inviteUser } = require('@/lib/firestore')
+      await inviteUser(inviteName, inviteEmail, inviteRole, user?.email || 'Owner')
       toast({
-        title: 'Link Generated',
-        description: `Invite link created for ${inviteRole}.`,
+        title: 'Invitation Sent',
+        description: `Successfully invited ${inviteName} as ${inviteRole}.`,
         tone: 'success',
       })
+      setIsInviteOpen(false)
+      setInviteName('')
+      setInviteEmail('')
+      setInviteRole('Admin')
     } catch (err) {
       setInviteError(err instanceof Error ? err.message : 'Invitation failed')
     } finally {
@@ -288,73 +294,64 @@ export default function UserManagementPage() {
             </p>
 
             <form onSubmit={handleInviteSubmit} className="space-y-4">
-              {!inviteLink ? (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold mb-1">Select Role</label>
-                    <select
-                      value={inviteRole}
-                      onChange={(e) => setInviteRole(e.target.value)}
-                      className="h-10 w-full rounded-xl border border-border px-2.5 text-sm bg-muted/20 outline-none focus:border-ring"
-                    >
-                      <option value="Admin">Admin</option>
-                      <option value="Accountant">Accountant</option>
-                      <option value="Teacher">Teacher</option>
-                      <option value="Receptionist">Receptionist</option>
-                      <option value="Owner">Owner</option>
-                    </select>
-                  </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Atharv Dubey"
+                  value={inviteName}
+                  onChange={(e) => setInviteName(e.target.value)}
+                  className="h-10 w-full rounded-xl border border-border px-3 text-sm bg-muted/20 outline-none focus:border-ring"
+                />
+              </div>
 
-                  {inviteError && <p className="text-xs text-destructive mt-1">{inviteError}</p>}
+              <div>
+                <label className="block text-xs font-semibold mb-1">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="e.g. staff@gmail.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="h-10 w-full rounded-xl border border-border px-3 text-sm bg-muted/20 outline-none focus:border-ring"
+                />
+              </div>
 
-                  <div className="flex gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsInviteOpen(false)}
-                      disabled={inviteBusy}
-                      className="flex-1 h-10 rounded-xl border border-border text-sm font-semibold hover:bg-muted"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={inviteBusy}
-                      className="flex-1 h-10 rounded-xl bg-primary text-sm font-semibold text-primary-foreground hover:opacity-90"
-                    >
-                      {inviteBusy ? 'Generating...' : 'Generate Link'}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-border bg-muted/20 p-3 text-xs font-mono break-all selection:bg-primary/20">
-                    {inviteLink}
-                  </div>
-                  <div className="flex gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsInviteOpen(false)
-                        setInviteLink('')
-                      }}
-                      className="flex-1 h-10 rounded-xl border border-border text-sm font-semibold hover:bg-muted"
-                    >
-                      Close
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(inviteLink)
-                        toast({ title: 'Copied!', description: 'Link copied to clipboard.', tone: 'success' })
-                      }}
-                      className="flex-1 h-10 flex items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground hover:opacity-90"
-                    >
-                      <Copy className="h-4 w-4" />
-                      Copy Link
-                    </button>
-                  </div>
-                </div>
-              )}
+              <div>
+                <label className="block text-xs font-semibold mb-1">Select Role</label>
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  className="h-10 w-full rounded-xl border border-border px-2.5 text-sm bg-muted/20 outline-none focus:border-ring"
+                >
+                  <option value="Admin">Admin</option>
+                  <option value="Accountant">Accountant</option>
+                  <option value="Teacher">Teacher</option>
+                  <option value="Receptionist">Receptionist</option>
+                  <option value="Owner">Owner</option>
+                </select>
+              </div>
+
+              {inviteError && <p className="text-xs text-destructive mt-1">{inviteError}</p>}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsInviteOpen(false)}
+                  disabled={inviteBusy}
+                  className="flex-1 h-10 rounded-xl border border-border text-sm font-semibold hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={inviteBusy}
+                  className="flex-1 h-10 rounded-xl bg-primary text-sm font-semibold text-primary-foreground hover:opacity-90"
+                >
+                  {inviteBusy ? 'Sending...' : 'Invite'}
+                </button>
+              </div>
             </form>
           </Card>
         </div>

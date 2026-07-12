@@ -1915,54 +1915,20 @@ export function subscribeUsers(
   )
 }
 
-export async function generateInviteToken(role: string, ownerEmail: string) {
-  const refDoc = doc(collection(db(), 'invites'))
-  const token = refDoc.id
-  const payload = {
-    token,
-    role,
-    used: false,
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    createdBy: ownerEmail,
-    createdAt: todayISO(),
-  }
-  await setDoc(refDoc, payload)
-  await writeUserManagementAudit(`Invite Token Generated (${role})`, ownerEmail, token)
-  return token
-}
-
-export async function validateAndConsumeInvite(token: string, name: string, email: string) {
-  const refDoc = doc(db(), 'invites', token)
-  const snap = await getDoc(refDoc)
-  if (!snap.exists()) {
-    throw new Error('Invalid invite link.')
-  }
-  const data = snap.data()
-  if (data.used) {
-    throw new Error('This invite link has already been used.')
-  }
-  if (new Date() > new Date(data.expiresAt)) {
-    throw new Error('This invite link has expired.')
-  }
-
-  // Consume token
-  await updateDoc(refDoc, { used: true, consumedBy: email, consumedAt: todayISO() })
-
-  // Create User
+export async function inviteUser(name: string, email: string, role: string, ownerEmail: string) {
   const emailLower = email.toLowerCase().trim()
-  const userRef = doc(db(), 'users', emailLower)
+  const refDoc = doc(db(), 'users', emailLower)
   const payload = {
     id: emailLower,
     email: emailLower,
-    name: name.trim() || emailLower.split('@')[0],
-    role: data.role,
-    status: 'Active',
+    name: name.trim(),
+    role,
+    status: 'Pending Invitation',
     createdAt: todayISO(),
     updatedAt: todayISO(),
   }
-  await setDoc(userRef, payload)
-  await writeUserManagementAudit('User Joined via Invite', emailLower, emailLower)
-  return payload
+  await setDoc(refDoc, payload)
+  await writeUserManagementAudit('User Invited', ownerEmail, emailLower)
 }
 
 export async function changeUserRole(email: string, role: string, ownerEmail: string) {
