@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, UserPlus, Search, Trash2, ShieldAlert, UserCheck, UserX, Shield, Copy, Check } from 'lucide-react'
 import { Card, PageHeader, Avatar } from '@/components/ui-bits'
 import { useAuth } from '@/components/state/auth-provider'
-import { subscribeUsers, generateInviteToken, changeUserRole, disableUser, enableUser, removeUser } from '@/lib/firestore'
+import { subscribeUsers, inviteUser, changeUserRole, disableUser, enableUser, removeUser } from '@/lib/firestore'
 import { useToast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
 
@@ -21,6 +21,7 @@ export default function UserManagementPage() {
   const [statusFilter, setStatusFilter] = useState('all')
 
   // Invite Form State
+  const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [inviteName, setInviteName] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('Admin')
@@ -70,8 +71,6 @@ export default function UserManagementPage() {
 
     setInviteBusy(true)
     try {
-      const { useAppData } = require('@/components/state/app-data-provider')
-      const { inviteUser } = require('@/lib/firestore')
       await inviteUser(inviteName, inviteEmail, inviteRole, user?.email || 'Owner')
       toast({
         title: 'Invitation Sent',
