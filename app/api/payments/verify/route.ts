@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminDb } from '@/lib/firebase-admin'
+import { getAdminDb, writeStudentHistoryAdmin } from '@/lib/firebase-admin'
 import { verifyCheckoutSignature } from '@/lib/razorpay'
 
 // Recalculates fee schedules and updates student balance using Firebase Admin
@@ -185,6 +185,17 @@ export async function POST(req: NextRequest) {
 
     // Recalculate student fees
     await adminRecalculateStudentFees(db, studentId)
+
+    // Write verification success history
+    await writeStudentHistoryAdmin(db, {
+      studentId,
+      studentName: result.studentName,
+      eventType: 'payment_verified',
+      newValue: `INR ${amount}`,
+      remarks: `Razorpay checkout signature verified. Payment ID: ${razorpay_payment_id}. Order ID: ${razorpay_order_id}`,
+      source: 'Razorpay Checkout',
+      paymentId: razorpay_payment_id
+    })
 
     // Store gateway status metadata
     const gatewayStatusRef = db.collection('gateway_status').doc('status')

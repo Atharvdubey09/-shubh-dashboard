@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminDb } from '@/lib/firebase-admin'
+import { getAdminDb, writeStudentHistoryAdmin } from '@/lib/firebase-admin'
 import { verifyWebhookSignature } from '@/lib/razorpay'
 import { adminRecalculateStudentFees } from '../verify/route'
 
@@ -125,6 +125,17 @@ export async function POST(req: NextRequest) {
       if (!result.duplicate) {
         // Recalculate balances
         await adminRecalculateStudentFees(db, studentId)
+
+        // Write webhook payment success history
+        await writeStudentHistoryAdmin(db, {
+          studentId,
+          studentName: result.studentName,
+          eventType: 'payment_verified',
+          newValue: `INR ${paymentEntity.amount / 100}`,
+          remarks: `Razorpay Webhook payment success logged (${eventName}). Payment ID: ${paymentId}. Order ID: ${orderId}`,
+          source: 'Razorpay Webhook',
+          paymentId: paymentId
+        })
         
         // Update gateway status with last payment timestamp
         await gatewayStatusRef.set({
@@ -141,8 +152,20 @@ export async function POST(req: NextRequest) {
       const paymentId = paymentEntity.id
       const errorMsg = paymentEntity.error_description || 'Payment failed'
       const studentId = paymentEntity.notes?.studentId || 'unknown'
+      const studentName = paymentEntity.notes?.studentName || 'Student'
       
       console.error(`[Payment Failed] Razorpay Webhook failed. Payment ID: ${paymentId}, Student: ${studentId}, Reason: ${errorMsg}`)
+      
+      // Write payment failed history
+      await writeStudentHistoryAdmin(db, {
+        studentId,
+        studentName,
+        eventType: 'payment_failed',
+        prevValue: `INR ${paymentEntity.amount / 100}`,
+        remarks: `Razorpay payment failed. Reason: ${errorMsg}. Payment ID: ${paymentId}`,
+        source: 'Razorpay Webhook',
+        paymentId: paymentId
+      })
     }
 
     return NextResponse.json({ success: true })

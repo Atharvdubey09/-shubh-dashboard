@@ -681,6 +681,15 @@ export async function restoreStudent(studentId: string) {
       deleted_by: null,
     })
     await writeAuditLog('student_restore', studentId, 'status', 'deleted', 'active')
+    await writeStudentHistory({
+      studentId,
+      studentName: student.name || 'Student',
+      eventType: 'student_restored',
+      prevValue: 'deleted',
+      newValue: 'active',
+      remarks: 'Student profile restored / unarchived',
+      source: 'Manual Edit'
+    })
   }
 }
 
@@ -799,6 +808,50 @@ export async function createStudent(input: StudentFormValues, photoUrl?: string)
     await recalculateStudentFees(student.id)
   }
 
+  // Write student creation history
+  await writeStudentHistory({
+    studentId: payload.id,
+    studentName: payload.name,
+    eventType: 'student_created',
+    newValue: payload.name,
+    remarks: `Student registered and admitted on ${payload.joined}`,
+    source: 'Manual Edit'
+  })
+
+  await writeStudentHistory({
+    studentId: payload.id,
+    studentName: payload.name,
+    eventType: 'fee_structure_created',
+    newValue: `${payload.paymentType} - INR ${payload.totalFee}`,
+    remarks: `Fee structure created: ${payload.paymentType} plan of total fee INR ${payload.totalFee}`,
+    source: 'Manual Edit'
+  })
+
+  if (payload.feeSchedule) {
+    for (const item of payload.feeSchedule) {
+      await writeStudentHistory({
+        studentId: payload.id,
+        studentName: payload.name,
+        eventType: 'installment_created',
+        newValue: `${item.label} (Due: ${item.dueDate})`,
+        remarks: `Installment generated: ${item.label} of amount INR ${item.amount} due on ${item.dueDate}`,
+        source: 'Manual Edit'
+      })
+    }
+  }
+
+  if (admissionPaid > 0 && paymentRef && paymentPayload) {
+    await writeStudentHistory({
+      studentId: payload.id,
+      studentName: payload.name,
+      eventType: 'payment_made',
+      newValue: `INR ${admissionPaid}`,
+      remarks: `Admission payment of INR ${admissionPaid} recorded via Cash. Receipt: ${paymentPayload.receiptNumber}`,
+      source: 'Manual Edit',
+      paymentId: paymentRef.id
+    })
+  }
+
   return payload
 }
 
@@ -821,6 +874,19 @@ export async function updateStudent(studentId: string, input: StudentFormValues,
           String(oldVal ?? ''),
           String(newVal ?? '')
         )
+
+        const isFeeField = ['totalFee', 'paymentType', 'promiseToPayDate'].includes(String(field))
+        const eventType = isFeeField ? 'fee_updated' : 'profile_updated'
+        
+        await writeStudentHistory({
+          studentId,
+          studentName: student.name,
+          eventType,
+          prevValue: String(oldVal ?? ''),
+          newValue: String(newVal ?? ''),
+          remarks: `${isFeeField ? 'Fee' : 'Profile'} field "${String(field)}" changed from "${oldVal ?? ''}" to "${newVal ?? ''}"`,
+          source: 'Manual Edit'
+        })
       }
     }
   }
@@ -847,6 +913,15 @@ export async function removeStudent(studentId: string) {
       deleted_by: 'Owner',
     })
     await writeAuditLog('student_delete', studentId, 'status', 'active', 'deleted')
+    await writeStudentHistory({
+      studentId,
+      studentName: student.name,
+      eventType: 'student_deleted',
+      prevValue: 'active',
+      newValue: 'deleted',
+      remarks: 'Student profile deleted / archived',
+      source: 'Manual Edit'
+    })
   }
 }
 
@@ -879,6 +954,16 @@ export async function createPayment(input: PaymentFormValues) {
 
   await setDoc(paymentRef, paymentPayload)
   await recalculateStudentFees(student.id)
+
+  await writeStudentHistory({
+    studentId: student.id,
+    studentName: student.name,
+    eventType: 'payment_made',
+    newValue: `INR ${input.amount}`,
+    remarks: `Payment recorded via ${input.paymentMode}. Receipt: ${receiptNumber}${input.notes ? ' - ' + input.notes : ''}`,
+    source: 'Manual Edit',
+    paymentId: paymentId
+  })
 
   return paymentPayload
 }
@@ -919,6 +1004,15 @@ export async function updatePayment(paymentId: string, input: PaymentFormValues)
   if (payment.studentId !== input.studentId) {
     await recalculateStudentFees(payment.studentId)
   }
+
+  await writeStudentHistory({
+    studentId: input.studentId,
+    studentName: input.studentName,
+    eventType: 'payment_edited',
+    remarks: `Payment ID ${paymentId} amount/details updated. Changed from ${payment.amount} to ${input.amount}`,
+    source: 'Manual Edit',
+    paymentId: paymentId
+  })
 }
 
 export async function removePayment(paymentId: string) {
@@ -934,6 +1028,16 @@ export async function removePayment(paymentId: string) {
     String(payment.amount),
     'deleted'
   )
+
+  await writeStudentHistory({
+    studentId: payment.studentId,
+    studentName: payment.studentName,
+    eventType: 'payment_deleted',
+    prevValue: `INR ${payment.amount}`,
+    remarks: `Payment of INR ${payment.amount} deleted. Receipt was ${payment.receiptNumber || 'N/A'}`,
+    source: 'Manual Edit',
+    paymentId: paymentId
+  })
 
   await deleteDoc(paymentRef)
   await recalculateStudentFees(payment.studentId)
@@ -2334,4 +2438,60 @@ export async function updateTeacherProfile(id: string, updates: Partial<Omit<Tea
     ...stripUndefinedDeep(updates),
     updatedAt: todayISO(),
   })
+}
+
+export async function writeStudentHistory(params: {
+  studentId: string
+  studentName: string
+  eventType: string
+  prevValue?: string
+  newValue?: string
+  remarks?: string
+  source?: string
+  paymentId?: string
+  adminUser?: string
+}) {
+  const refDoc = doc(collection(db(), 'student_history'))
+  const now = new Date()
+  const date = todayISO(now)
+  const time = now.toTimeString().slice(0, 8)
+  
+  await setDoc(refDoc, {
+    id: refDoc.id,
+    studentId: params.studentId,
+    studentName: params.studentName,
+    eventType: params.eventType,
+    prevValue: params.prevValue || '',
+    newValue: params.newValue || '',
+    remarks: params.remarks || '',
+    source: params.source || 'Manual Edit',
+    paymentId: params.paymentId || '',
+    adminUser: params.adminUser || 'Owner',
+    date,
+    time,
+    timestamp: now.toISOString(),
+  })
+}
+
+export function subscribeStudentHistory(
+  studentId: string,
+  onChange: (history: any[]) => void,
+  onError?: (error: unknown) => void,
+) {
+  const q = query(
+    collection(db(), 'student_history'),
+    where('studentId', '==', studentId),
+    orderBy('timestamp', 'asc')
+  )
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const records: any[] = []
+      snapshot.forEach((docSnap) => {
+        records.push({ id: docSnap.id, ...docSnap.data() })
+      })
+      onChange(records)
+    },
+    onError
+  )
 }

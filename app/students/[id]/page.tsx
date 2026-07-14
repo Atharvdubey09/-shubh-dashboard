@@ -13,6 +13,12 @@ import {
   Paperclip,
   Phone,
   Upload,
+  AlertCircle,
+  User,
+  Edit3,
+  Trash,
+  RotateCcw,
+  HelpCircle,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card, StatusPill, Avatar } from '@/components/ui-bits'
@@ -22,6 +28,78 @@ import { useQuickAdd } from '@/components/shell/quick-add-context'
 import { useToast } from '@/components/ui/toast'
 import { formatINR, formatLongDate, type PaymentStatus } from '@/lib/domain'
 import { cn } from '@/lib/utils'
+import { subscribeStudentHistory } from '@/lib/firestore'
+function getEventDetails(event: any) {
+  switch (event.eventType) {
+    case 'student_created':
+      return {
+        icon: <User className="h-3.5 w-3.5" />,
+        colorClass: 'bg-indigo-600 text-white ring-indigo-100',
+        label: 'Admission & Registration',
+      }
+    case 'fee_structure_created':
+      return {
+        icon: <FileText className="h-3.5 w-3.5" />,
+        colorClass: 'bg-blue-600 text-white ring-blue-100',
+        label: 'Fee Structure Initialized',
+      }
+    case 'installment_created':
+      return {
+        icon: <Paperclip className="h-3.5 w-3.5" />,
+        colorClass: 'bg-slate-500 text-white ring-slate-100',
+        label: 'Installment Created',
+      }
+    case 'payment_made':
+      return {
+        icon: <CreditCard className="h-3.5 w-3.5" />,
+        colorClass: 'bg-emerald-600 text-white ring-emerald-100',
+        label: 'Payment Made',
+      }
+    case 'payment_verified':
+      return {
+        icon: <CircleCheck className="h-3.5 w-3.5" />,
+        colorClass: 'bg-green-600 text-white ring-green-150',
+        label: 'Payment Verified',
+      }
+    case 'payment_failed':
+      return {
+        icon: <AlertCircle className="h-3.5 w-3.5" />,
+        colorClass: 'bg-rose-600 text-white ring-rose-100',
+        label: 'Payment Failed',
+      }
+    case 'profile_updated':
+      return {
+        icon: <Edit3 className="h-3.5 w-3.5" />,
+        colorClass: 'bg-amber-500 text-white ring-amber-100',
+        label: 'Profile Updated',
+      }
+    case 'fee_updated':
+      return {
+        icon: <FileText className="h-3.5 w-3.5" />,
+        colorClass: 'bg-violet-600 text-white ring-violet-100',
+        label: 'Fee Structure Updated',
+      }
+    case 'student_deleted':
+      return {
+        icon: <Trash className="h-3.5 w-3.5" />,
+        colorClass: 'bg-red-600 text-white ring-red-100',
+        label: 'Student Archived',
+      }
+    case 'student_restored':
+      return {
+        icon: <RotateCcw className="h-3.5 w-3.5" />,
+        colorClass: 'bg-teal-600 text-white ring-teal-100',
+        label: 'Student Restored',
+      }
+    default:
+      return {
+        icon: <HelpCircle className="h-3.5 w-3.5" />,
+        colorClass: 'bg-slate-400 text-white ring-slate-100',
+        label: 'System Activity',
+      }
+  }
+}
+
 
 export default function StudentProfilePage() {
   const REVENUE_PASSWORD = '2006'
@@ -67,7 +145,9 @@ export default function StudentProfilePage() {
   const [paymentLink, setPaymentLink] = useState('')
   const [paymentLinkCopied, setPaymentLinkCopied] = useState(false)
   const [razorpayError, setRazorpayError] = useState('')
-
+  const [timelineHistory, setTimelineHistory] = useState<any[]>([])
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<'timeline' | 'schedule' | 'payments'>('timeline')
   async function handleLinkExistingSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!student || !selectedFamilyId) return
@@ -130,6 +210,20 @@ export default function StudentProfilePage() {
     document.addEventListener('mousedown', onClick)
     return () => document.removeEventListener('mousedown', onClick)
   }, [])
+
+  useEffect(() => {
+    if (!student) return
+    const unsubscribe = subscribeStudentHistory(student.id, (records) => {
+      // Sort chronologically from oldest to newest (by timestamp/date)
+      const sorted = [...records].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+      setTimelineHistory(sorted)
+      setHistoryLoading(false)
+    }, (err) => {
+      console.error('Failed to load history:', err)
+      setHistoryLoading(false)
+    })
+    return () => unsubscribe()
+  }, [student])
 
   const splitTimeline = useMemo(() => {
     if (!student) return []
@@ -587,44 +681,128 @@ export default function StudentProfilePage() {
         </Card>
 
         <Card className="p-6 lg:col-span-3 animate-fade-up [animation-delay:180ms]">
-          <p className="micro-label mb-1">Payment History</p>
-          <h2 className="mb-6 text-base font-semibold tracking-tight">
-            Every rupee, on record
+          <p className="micro-label mb-1">Student Billing & History</p>
+          <h2 className="mb-6 text-base font-semibold tracking-tight text-foreground">
+            Timeline, payments, and schedules
           </h2>
-          {history.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-14 text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <FileText className="h-5 w-5 text-muted-foreground" strokeWidth={1.5} />
-              </span>
-              <p className="text-sm font-medium">No payments recorded yet</p>
-              <p className="max-w-56 text-xs leading-relaxed text-muted-foreground">
-                When you collect a fee from {student.name.split(' ')[0]}, it will
-                appear here.
-              </p>
-            </div>
-          ) : (
-            <ol className="relative ml-2 flex flex-col gap-6 border-l border-border pl-6">
-              {history.map((payment) => (
-                <li key={payment.id} className="relative">
-                  <span className="absolute -left-[31px] top-1 h-2.5 w-2.5 rounded-full bg-success ring-4 ring-success/15" />
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium">{payment.label}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatLongDate(payment.date)}
-                      </p>
-                    </div>
-                    <p className="tabular text-sm font-semibold">
-                      {formatINR(payment.amount)}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+          
+          <div className="flex border-b border-border mb-6 overflow-x-auto whitespace-nowrap scrollbar-none">
+            <button
+              onClick={() => setActiveTab('timeline')}
+              className={cn(
+                "pb-2.5 text-xs font-semibold px-4 transition-colors border-b-2 -mb-[1px] cursor-pointer",
+                activeTab === 'timeline' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Activity Timeline
+            </button>
+            <button
+              onClick={() => setActiveTab('payments')}
+              className={cn(
+                "pb-2.5 text-xs font-semibold px-4 transition-colors border-b-2 -mb-[1px] cursor-pointer",
+                activeTab === 'payments' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Payments ({history.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('schedule')}
+              className={cn(
+                "pb-2.5 text-xs font-semibold px-4 transition-colors border-b-2 -mb-[1px] cursor-pointer",
+                activeTab === 'schedule' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Fee Schedule
+            </button>
+          </div>
+
+          {activeTab === 'timeline' && (
+            historyLoading ? (
+              <p className="text-xs text-muted-foreground py-6">Loading student activity timeline...</p>
+            ) : timelineHistory.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-14 text-center">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                  <FileText className="h-5 w-5 text-muted-foreground" strokeWidth={1.5} />
+                </span>
+                <p className="text-sm font-medium">No activity history reconstructed</p>
+                <p className="max-w-56 text-xs leading-relaxed text-muted-foreground">
+                  The chronological timeline could not be constructed for this profile.
+                </p>
+              </div>
+            ) : (
+              <ol className="relative ml-3 flex flex-col gap-6 border-l border-border pl-6 animate-fade-in">
+                {timelineHistory.map((event) => {
+                  const details = getEventDetails(event)
+                  return (
+                    <li key={event.id} className="relative">
+                      <span
+                        className={cn(
+                          'absolute -left-[35px] top-0.5 flex h-5 w-5 items-center justify-center rounded-full ring-4',
+                          details.colorClass
+                        )}
+                      >
+                        {details.icon}
+                      </span>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-foreground">{details.label}</p>
+                            <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-medium uppercase tracking-wider">
+                              {event.source || 'Manual'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{event.remarks}</p>
+                          {event.prevValue || event.newValue ? (
+                            <div className="text-[11px] font-mono text-muted-foreground mt-1 bg-muted px-2 py-1 rounded-sm inline-block">
+                              {event.prevValue ? `${event.prevValue} → ` : ''}{event.newValue}
+                            </div>
+                          ) : null}
+                          <p className="text-[10px] text-muted-foreground font-medium mt-1">
+                            {formatLongDate(event.date)} at {event.time} by {event.adminUser || 'Admin'}
+                          </p>
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ol>
+            )
           )}
 
-          <div className="mt-7 border-t border-border pt-5">
-            <p className="micro-label mb-3">Fee Schedule</p>
+          {activeTab === 'payments' && (
+            history.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-14 text-center">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                  <FileText className="h-5 w-5 text-muted-foreground" strokeWidth={1.5} />
+                </span>
+                <p className="text-sm font-medium">No payments recorded yet</p>
+                <p className="max-w-56 text-xs leading-relaxed text-muted-foreground">
+                  When you collect a fee from {student?.name.split(' ')[0]}, it will appear here.
+                </p>
+              </div>
+            ) : (
+              <ol className="relative ml-2 flex flex-col gap-6 border-l border-border pl-6">
+                {history.map((payment) => (
+                  <li key={payment.id} className="relative">
+                    <span className="absolute -left-[31px] top-1 h-2.5 w-2.5 rounded-full bg-success ring-4 ring-success/15" />
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium">{payment.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatLongDate(payment.date)}
+                        </p>
+                      </div>
+                      <p className="tabular text-sm font-semibold">
+                        {formatINR(payment.amount)}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )
+          )}
+
+          {activeTab === 'schedule' && (
             <ol className="relative ml-2 flex flex-col gap-7 border-l border-border pl-6">
               {splitTimeline.map((step) => (
                 <li key={step.id} className="relative">
@@ -658,7 +836,7 @@ export default function StudentProfilePage() {
                 </li>
               ))}
             </ol>
-          </div>
+          )}
         </Card>
       </div>
 
