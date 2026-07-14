@@ -8,8 +8,16 @@ __v0_jsx-dev-runtime.ts
 
 # Environment variables
 .env*.local
+.env
+.env.production
 
 # Common ignores
 node_modules
 .next/
 .DS_Store
+
+# Firebase/Google Cloud Service Account Keys
+firebase-service-account.json
+firebase-service-account.json.json
+public/firebase-service-account.json
+public/firebase-service-account.json.json
