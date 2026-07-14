@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 import { Card } from '@/components/ui-bits'
 import { subscribeTransactions } from '@/lib/firestore'
-import { formatINR, formatLongDate } from '@/lib/domain'
+import { formatINR, formatLongDate, todayISO } from '@/lib/domain'
 import { cn } from '@/lib/utils'
 
 interface Transaction {
@@ -235,15 +235,15 @@ export default function TransactionHistoryPage() {
   // Statistics Calculations
   const stats = useMemo(() => {
     const now = new Date()
-    const todayStr = now.toISOString().split('T')[0]
+    const todayStr = todayISO(now)
 
     // Calculate start of week (Sunday)
     const sunday = new Date(now)
     sunday.setDate(now.getDate() - now.getDay())
-    const weekStartStr = sunday.toISOString().split('T')[0]
+    const weekStartStr = todayISO(sunday)
 
-    const monthStr = now.toISOString().slice(0, 7) // yyyy-mm
-    const yearStr = now.toISOString().slice(0, 4) // yyyy
+    const monthStr = todayStr.slice(0, 7) // yyyy-mm
+    const yearStr = todayStr.slice(0, 4) // yyyy
 
     let todayCollection = 0
     let weekCollection = 0
