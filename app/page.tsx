@@ -378,67 +378,6 @@ export default function DashboardPage() {
                )}
             </Card>
           </div>
-
-          <div className="space-y-3 animate-fade-up">
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-1">Payment Gateway</h3>
-            <Card className="p-5 border-l-4 border-l-indigo-600 bg-card shadow-sm hover:shadow-md transition-all">
-              <div className="flex items-center justify-between mb-4">
-                <p className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">Razorpay Status</p>
-                {gatewayStatus?.isConnected ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-success/15 px-2.5 py-0.5 text-xs font-semibold text-success">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" /> Connected
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/15 px-2.5 py-0.5 text-xs font-semibold text-destructive">
-                    <span className="h-1.5 w-1.5 rounded-full bg-destructive" /> Disconnected
-                  </span>
-                )}
-              </div>
-
-              {gatewayStatus ? (
-                <div className="space-y-3 text-xs">
-                  <div className="flex justify-between border-b border-border/40 pb-2">
-                    <span className="text-muted-foreground font-medium">Mode</span>
-                    <span className={cn(
-                      'font-bold',
-                      gatewayStatus.mode === 'Live Mode' ? 'text-emerald-500' : 'text-amber-500'
-                    )}>
-                      {gatewayStatus.mode}
-                    </span>
-                  </div>
-                  <div className="flex justify-between border-b border-border/40 pb-2">
-                    <span className="text-muted-foreground font-medium">Last Webhook</span>
-                    <span className="font-medium text-foreground truncate max-w-[150px]">
-                      {gatewayStatus.lastWebhook
-                        ? `${new Date(gatewayStatus.lastWebhook).toLocaleDateString('en-IN')} ${new Date(gatewayStatus.lastWebhook).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
-                        : 'No events'
-                      }
-                    </span>
-                  </div>
-                  <div className="flex justify-between border-b border-border/40 pb-2">
-                    <span className="text-muted-foreground font-medium">Last Payment</span>
-                    <span className="font-medium text-foreground truncate max-w-[150px]">
-                      {gatewayStatus.lastPayment
-                        ? `${new Date(gatewayStatus.lastPayment).toLocaleDateString('en-IN')} ${new Date(gatewayStatus.lastPayment).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
-                        : 'No payments'
-                      }
-                    </span>
-                  </div>
-                  <div className="flex justify-between pb-1">
-                    <span className="text-muted-foreground font-medium">Last Sync</span>
-                    <span className="font-medium text-foreground">
-                      {gatewayStatus.lastSync
-                        ? `${new Date(gatewayStatus.lastSync).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
-                        : '—'
-                      }
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground py-2 text-center">Loading gateway status...</div>
-              )}
-            </Card>
-          </div>
         </div>
 
         <div className="lg:col-span-2 space-y-3 h-full">
