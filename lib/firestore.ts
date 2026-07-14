@@ -1451,16 +1451,24 @@ export function deriveDashboardData(
   const tomorrow = todayISO(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1))
   const monthStart = startOfMonthISO(now)
 
-  const activeStudents = students.filter((student) => student.status === 'active').length
-  const pendingFees = students.reduce((sum, student) => sum + student.pending, 0)
+  const activeStudentIds = new Set(
+    students
+      .filter((student) => student.status === 'active')
+      .map((student) => student.id)
+  )
+
+  const activeStudents = activeStudentIds.size
+  const pendingFees = students
+    .filter((student) => student.status === 'active')
+    .reduce((sum, student) => sum + student.pending, 0)
   const monthCollection = payments
-    .filter((payment) => payment.status === 'paid' && monthKey(payment.date) === currentMonth)
+    .filter((payment) => payment.status === 'paid' && activeStudentIds.has(payment.studentId) && monthKey(payment.date) === currentMonth)
     .reduce((sum, payment) => sum + payment.amount, 0)
   const monthExpenses = expenses
     .filter((expense) => monthKey(expense.date) === currentMonth)
     .reduce((sum, expense) => sum + expense.amount, 0)
   const todayCollection = payments
-    .filter((payment) => payment.status === 'paid' && sameDay(payment.date, today))
+    .filter((payment) => payment.status === 'paid' && activeStudentIds.has(payment.studentId) && sameDay(payment.date, today))
     .reduce((sum, payment) => sum + payment.amount, 0)
 
   const year = now.getFullYear()
@@ -1521,8 +1529,10 @@ export function deriveDashboardData(
 
   const currentMonthTotalExpected = currentMonthMonthlyExpected + currentMonthSplitExpected + currentMonthFullExpected
 
-  const scheduleEntries = students.flatMap((student) =>
-    student.feeSchedule
+  const scheduleEntries = students
+    .filter((student) => activeStudentIds.has(student.id))
+    .flatMap((student) =>
+      student.feeSchedule
       .filter((item) => item.status !== 'paid')
       .map((item) => ({
         ...item,
@@ -1684,7 +1694,7 @@ export function deriveDashboardData(
   ]
 
   const totalRevenueCollected = payments
-    .filter((p) => p.status === 'paid')
+    .filter((p) => p.status === 'paid' && activeStudentIds.has(p.studentId))
     .reduce((sum, p) => sum + p.amount, 0)
 
   return {

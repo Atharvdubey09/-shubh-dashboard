@@ -206,7 +206,12 @@ export default function DashboardPage() {
 
   const getTransactionData = () => {
     if (drawerType !== 'TotalRevenueCollected') return []
-    let list = [...payments]
+    const activeStudentIds = new Set(
+      students
+        .filter((s) => s.status === 'active')
+        .map((s) => s.id)
+    )
+    let list = payments.filter((p) => p.status === 'paid' && activeStudentIds.has(p.studentId))
 
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase()

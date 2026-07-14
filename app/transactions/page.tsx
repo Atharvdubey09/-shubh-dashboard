@@ -22,7 +22,7 @@ import {
   User,
 } from 'lucide-react'
 import { Card } from '@/components/ui-bits'
-import { subscribeTransactions } from '@/lib/firestore'
+import { subscribeTransactions, subscribeStudents, subscribeDeletedStudents } from '@/lib/firestore'
 import { formatINR, formatLongDate, todayISO } from '@/lib/domain'
 import { cn } from '@/lib/utils'
 
@@ -98,6 +98,41 @@ export default function TransactionHistoryPage() {
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 15
+
+  const [students, setStudents] = useState<any[]>([])
+
+  useEffect(() => {
+    const unsubStudents = subscribeStudents(
+      (list) => {
+        setStudents((prev) => {
+          const filteredPrev = prev.filter(s => s.is_deleted === true)
+          return [...filteredPrev, ...list]
+        })
+      },
+      (err) => console.error('Failed to subscribe to students:', err)
+    )
+
+    const unsubDeleted = subscribeDeletedStudents(
+      (list) => {
+        setStudents((prev) => {
+          const filteredPrev = prev.filter(s => s.is_deleted !== true)
+          return [...filteredPrev, ...list.map(s => ({ ...s, is_deleted: true }))]
+        })
+      },
+      (err) => console.error('Failed to subscribe to deleted students:', err)
+    )
+
+    return () => {
+      unsubStudents()
+      unsubDeleted()
+    }
+  }, [])
+
+  const studentMap = useMemo(() => {
+    const map = new Map<string, any>()
+    students.forEach((s) => map.set(s.id, s))
+    return map
+  }, [students])
 
   // Subscribe to transactions
   useEffect(() => {
@@ -260,6 +295,10 @@ export default function TransactionHistoryPage() {
     let refundCount = 0
 
     transactions.forEach((t) => {
+      const student = studentMap.get(t.studentId)
+      const isActive = student && student.status === 'active' && student.is_deleted !== true
+      if (!isActive) return
+
       totalTxCount++
       const amount = t.amount || 0
 
@@ -308,7 +347,7 @@ export default function TransactionHistoryPage() {
       failedCount,
       refundCount,
     }
-  }, [transactions])
+  }, [transactions, studentMap])
 
   // Export to CSV
   const handleExportCSV = () => {
@@ -704,8 +743,19 @@ export default function TransactionHistoryPage() {
                         className="hover:bg-muted/30 cursor-pointer transition-colors active:bg-muted/50"
                       >
                         <td className="py-3.5 px-4 font-semibold text-foreground">
-                          {tx.studentName}
-                          <span className="block text-[10px] text-muted-foreground font-medium font-mono">{tx.studentId}</span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span>{tx.studentName}</span>
+                            {(!studentMap.has(tx.studentId) || studentMap.get(tx.studentId)?.is_deleted === true) ? (
+                              <span className="inline-flex items-center rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[8px] font-bold text-rose-500 uppercase tracking-wider">
+                                Deleted Student
+                              </span>
+                            ) : studentMap.get(tx.studentId)?.status === 'inactive' ? (
+                              <span className="inline-flex items-center rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[8px] font-bold text-amber-500 uppercase tracking-wider">
+                                Archived Student
+                              </span>
+                            ) : null}
+                          </div>
+                          <span className="block text-[10px] text-muted-foreground font-medium font-mono mt-0.5">{tx.studentId}</span>
                         </td>
                         <td className="py-3.5 px-4 font-medium text-foreground">Class {tx.studentClass}</td>
                         <td className="py-3.5 px-4">
@@ -816,7 +866,18 @@ export default function TransactionHistoryPage() {
               <div className="grid grid-cols-2 gap-4 pb-4">
                 <div>
                   <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide block mb-1">Student</span>
-                  <p className="font-bold text-base text-foreground">{selectedTx.studentName}</p>
+                  <p className="font-bold text-base text-foreground flex items-center gap-2">
+                    <span>{selectedTx.studentName}</span>
+                    {(!studentMap.has(selectedTx.studentId) || studentMap.get(selectedTx.studentId)?.is_deleted === true) ? (
+                      <span className="inline-flex items-center rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[8px] font-bold text-rose-500 uppercase tracking-wider">
+                        Deleted
+                      </span>
+                    ) : studentMap.get(selectedTx.studentId)?.status === 'inactive' ? (
+                      <span className="inline-flex items-center rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[8px] font-bold text-amber-500 uppercase tracking-wider">
+                        Archived
+                      </span>
+                    ) : null}
+                  </p>
                   <p className="text-xs text-muted-foreground mt-0.5">Roll No: {selectedTx.studentRoll || 'N/A'}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">Phone: {selectedTx.studentPhone || 'N/A'}</p>
                 </div>
