@@ -18,12 +18,15 @@ export async function adminRecalculateStudentFees(db: any, studentId: string) {
   const paid = payments.reduce((sum, p) => sum + p.amount, 0)
   const pending = Math.max(student.totalFee - paid, 0)
 
-  const updatedSchedule = (student.feeSchedule || []).map((item: any) => ({
-    ...item,
-    status: 'upcoming',
-    paymentId: undefined,
-    paidAmount: 0,
-  }))
+  const updatedSchedule = (student.feeSchedule || []).map((item: any) => {
+    const newItem = {
+      ...item,
+      status: 'upcoming',
+      paidAmount: 0,
+    }
+    delete newItem.paymentId
+    return newItem
+  })
 
   const today = new Date().toISOString().split('T')[0] // yyyy-mm-dd
   const hasActivePromise = student.promiseToPayDate && student.promiseToPayDate >= today

@@ -3,7 +3,7 @@ import { getAdminDb } from '@/lib/firebase-admin'
 
 export async function GET(req: NextRequest) {
   try {
-    const keyId = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
+    const keyId = process.env.RAZORPAY_KEY_ID
     const secret = process.env.RAZORPAY_KEY_SECRET
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET
 
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       isConnected,
       isWebhookConfigured,
       mode,
-      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || (keyId ? `${keyId.slice(0, 8)}...` : ''),
+      keyId: keyId ? `${keyId.slice(0, 8)}...` : '',
       lastPayment: metadata.lastPaymentAt || null,
       lastWebhook: metadata.lastWebhookAt || null,
       lastWebhookEvent: metadata.lastWebhookEvent || null,

@@ -256,11 +256,20 @@ export default function StudentProfilePage() {
         }
 
         // 3. Open Razorpay Checkout modal
-        const RazorpayConstructor = (window as any).Razorpay
-        const rzp = new RazorpayConstructor({
-          key: orderData.keyId,
+        const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
+
+        // Debugging logs: Verify whether Razorpay key exists before initialization.
+        const isKeyValid = !!(razorpayKey && razorpayKey !== 'undefined' && razorpayKey !== 'null')
+        console.log(isKeyValid ? "KEY FOUND" : "KEY MISSING")
+
+        if (!isKeyValid) {
+          throw new Error('Razorpay client-side key (NEXT_PUBLIC_RAZORPAY_KEY_ID) is not configured.')
+        }
+
+        const options = {
+          key: razorpayKey,
           amount: orderData.amount,
-          currency: orderData.currency,
+          currency: orderData.currency || 'INR',
           name: 'Shubh Classes',
           description: `Coaching Fee Collection for ${student.name}`,
           order_id: orderData.orderId,
@@ -302,7 +311,10 @@ export default function StudentProfilePage() {
               setRazorpayLoading(false)
             },
           },
-        })
+        }
+
+        const RazorpayConstructor = (window as any).Razorpay
+        const rzp = new RazorpayConstructor(options)
         rzp.open()
       } else {
         // Create payment link

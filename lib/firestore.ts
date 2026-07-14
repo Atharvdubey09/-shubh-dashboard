@@ -220,15 +220,19 @@ function normalizeFeeSchedule(raw: unknown): FeeScheduleItem[] {
     const amount = toSafeNumber(current.amount)
     const dueDate = toSafeString(current.dueDate)
     if (!dueDate) continue
-    schedule.push({
+    const normalizedItem: FeeScheduleItem = {
       id: toSafeString(current.id) || crypto.randomUUID(),
       label: toSafeString(current.label, 'Installment'),
       amount,
       dueDate,
       status: toPaymentStatus(current.status),
-      paymentId: toSafeString(current.paymentId) || undefined,
       paidAmount: toSafeNumber(current.paidAmount, 0),
-    })
+    }
+    const pid = toSafeString(current.paymentId)
+    if (pid) {
+      normalizedItem.paymentId = pid
+    }
+    schedule.push(normalizedItem)
   }
   return schedule
 }
@@ -436,16 +440,17 @@ function buildFeeScheduleFromPlan(
   if (plan.type === 'Full Payment') {
     const dueDate = plan.startDate || joined
     const status = paidAmount >= agreedTotalFee ? 'paid' : 'upcoming'
-    return [
-      {
-        id: `${studentId}-schedule-1`,
-        label: 'Full Payment',
-        amount: agreedTotalFee,
-        dueDate,
-        status,
-        paymentId: status === 'paid' ? `${studentId}-seed-1` : undefined,
-      } satisfies FeeScheduleItem,
-    ]
+    const item: FeeScheduleItem = {
+      id: `${studentId}-schedule-1`,
+      label: 'Full Payment',
+      amount: agreedTotalFee,
+      dueDate,
+      status,
+    }
+    if (status === 'paid') {
+      item.paymentId = `${studentId}-seed-1`
+    }
+    return [item]
   }
 
   if (plan.type === 'Split') {
@@ -458,14 +463,17 @@ function buildFeeScheduleFromPlan(
     return installments.map((item, index) => {
       const cumulative = installments.slice(0, index + 1).reduce((sum, current) => sum + current.amount, 0)
       const status = paidAmount >= cumulative ? 'paid' : 'upcoming'
-      return {
+      const scheduleItem: FeeScheduleItem = {
         id: `${studentId}-schedule-${index + 1}`,
         label: `Installment ${index + 1} of ${installments.length}`,
         amount: item.amount,
         dueDate: item.dueDate,
         status,
-        paymentId: status === 'paid' ? `${studentId}-seed-${index + 1}` : undefined,
-      } satisfies FeeScheduleItem
+      }
+      if (status === 'paid') {
+        scheduleItem.paymentId = `${studentId}-seed-${index + 1}`
+      }
+      return scheduleItem
     })
   }
 
@@ -479,14 +487,17 @@ function buildFeeScheduleFromPlan(
     const dueDate = addMonths(startDate, index)
     const cumulative = agreedTotalFee - remaining + amount
     const status = paidAmount >= cumulative ? 'paid' : 'upcoming'
-    schedule.push({
+    const scheduleItem: FeeScheduleItem = {
       id: `${studentId}-schedule-${index + 1}`,
       label: `Monthly Fees - ${formatMonthLabel(monthKey(dueDate))}`,
       amount,
       dueDate,
       status,
-      paymentId: status === 'paid' ? `${studentId}-seed-${index + 1}` : undefined,
-    })
+    }
+    if (status === 'paid') {
+      scheduleItem.paymentId = `${studentId}-seed-${index + 1}`
+    }
+    schedule.push(scheduleItem)
     remaining -= amount
     index += 1
   }
@@ -1580,12 +1591,15 @@ export async function recalculateStudentFees(studentId: string) {
   payments.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt))
   const paid = payments.reduce((sum, p) => sum + p.amount, 0)
   const pending = Math.max(student.totalFee - paid, 0)
-  const updatedSchedule = student.feeSchedule.map((item) => ({
-    ...item,
-    status: 'upcoming' as PaymentStatus,
-    paymentId: undefined as string | undefined,
-    paidAmount: 0,
-  }))
+  const updatedSchedule = student.feeSchedule.map((item) => {
+    const newItem = {
+      ...item,
+      status: 'upcoming' as PaymentStatus,
+      paidAmount: 0,
+    }
+    delete newItem.paymentId
+    return newItem
+  })
   const today = todayISO()
   const hasActivePromise = student.promiseToPayDate && student.promiseToPayDate >= today
 

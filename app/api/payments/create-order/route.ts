@@ -41,7 +41,6 @@ export async function POST(req: NextRequest) {
       receipt: order.receipt,
       studentName: student.name,
       studentId: studentId,
-      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID, // Return Key ID to initialize checkout in frontend
     })
   } catch (error: any) {
     console.error('[Razorpay Order Creation Error]', error)
