@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminDb, writeStudentHistoryAdmin } from '@/lib/firebase-admin'
+import { getAdminDb, writeStudentHistoryAdmin, writeTransactionAdmin } from '@/lib/firebase-admin'
 import { verifyCheckoutSignature } from '@/lib/razorpay'
 
 // Recalculates fee schedules and updates student balance using Firebase Admin
@@ -175,7 +175,16 @@ export async function POST(req: NextRequest) {
       }
 
       transaction.set(paymentRef, paymentPayload)
-      return { duplicate: false, studentName: student.name, amount }
+      return {
+        duplicate: false,
+        studentName: student.name,
+        amount,
+        studentClass: student.class || 0,
+        studentRoll: student.roll || 'N/A',
+        studentPhone: student.parentPhone || student.studentPhone || 'N/A',
+        receiptNumber,
+        createdAt: paymentPayload.createdAt,
+      }
     })
 
     if (result.duplicate) {
@@ -185,6 +194,43 @@ export async function POST(req: NextRequest) {
 
     // Recalculate student fees
     await adminRecalculateStudentFees(db, studentId)
+
+    // Write transaction history entry
+    const pDate = result.createdAt || new Date().toISOString()
+    const today = pDate.split('T')[0]
+    const time = pDate.split('T')[1].slice(0, 8)
+    
+    await db.collection('transactions').doc(razorpay_payment_id).set({
+      id: razorpay_payment_id,
+      studentId,
+      studentName: result.studentName,
+      studentClass: result.studentClass || 0,
+      studentRoll: result.studentRoll || 'N/A',
+      studentPhone: result.studentPhone || 'N/A',
+      transactionType: 'payment',
+      amount: result.amount,
+      discount: 0,
+      fine: 0,
+      netAmount: result.amount,
+      paymentMethod: 'Razorpay',
+      paymentStatus: 'success',
+      collectionSource: 'Razorpay Checkout',
+      collectedBy: 'System',
+      date: today,
+      time,
+      receiptNumber: result.receiptNumber,
+      razorpayPaymentId: razorpay_payment_id,
+      razorpayOrderId: razorpay_order_id,
+      notes: notes || 'Razorpay checkout payment',
+      createdAt: pDate,
+      updatedAt: pDate,
+      docRef: `payments/${razorpay_payment_id}`,
+      verificationStatus: 'Verified',
+      timeline: [
+        { status: 'created', timestamp: pDate, remarks: 'Transaction registered in system' },
+        { status: 'success', timestamp: pDate, remarks: 'Payment marked as successful via Razorpay Checkout' }
+      ]
+    })
 
     // Write verification success history
     await writeStudentHistoryAdmin(db, {

@@ -313,3 +313,90 @@ export async function runHistoryReconstructionMigration() {
   await statusRef.set({ historyReconstructed: true }, { merge: true })
   console.log('[History Migration]: Chronological timeline reconstruction complete.')
 }
+
+export async function writeTransactionAdmin(db: any, transactionData: any) {
+  const ref = db.collection('transactions').doc()
+  await ref.set({
+    id: ref.id,
+    ...transactionData,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  })
+}
+
+export async function runTransactionReconstructionMigration() {
+  const db = getAdminDb()
+  const statusRef = db.collection('gateway_status').doc('status')
+  const statusSnap = await statusRef.get()
+  const statusData = statusSnap.exists ? statusSnap.data() : {}
+  
+  if (statusData?.transactionsReconstructed) {
+    return // Migration already run
+  }
+
+  console.log('[Transaction History Migration]: Starting historical transactions reconstruction...')
+  const studentsSnap = await db.collection('students').get()
+  const paymentsSnap = await db.collection('payments').get()
+
+  const students = studentsSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }))
+  const payments = paymentsSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }))
+
+  const batch = db.batch()
+  let ops = 0
+
+  for (const payment of payments) {
+    const student = students.find((s: any) => s.id === payment.studentId) || {}
+    const pDate = payment.createdAt || payment.date + 'T12:00:00.000Z'
+    const time = pDate.includes('T') ? pDate.split('T')[1].slice(0, 8) : '12:00:00'
+
+    const transPayload = {
+      studentId: payment.studentId,
+      studentName: payment.studentName || student.name || 'Student',
+      studentClass: student.class || 0,
+      studentRoll: student.roll || 'N/A',
+      studentPhone: student.parentPhone || student.studentPhone || 'N/A',
+      transactionType: 'payment',
+      amount: payment.amount,
+      discount: 0,
+      fine: 0,
+      netAmount: payment.amount,
+      paymentMethod: payment.paymentMode || 'Cash',
+      paymentStatus: 'success',
+      collectionSource: payment.paymentMode === 'Razorpay' ? 'Razorpay Webhook' : 'Manual Collection',
+      collectedBy: 'Owner',
+      date: payment.date,
+      time,
+      receiptNumber: payment.receiptNumber || payment.id,
+      razorpayPaymentId: payment.razorpayPaymentId || '',
+      razorpayOrderId: payment.razorpayOrderId || '',
+      notes: payment.notes || '',
+      createdAt: pDate,
+      updatedAt: pDate,
+      docRef: `payments/${payment.id}`,
+      verificationStatus: payment.paymentMode === 'Razorpay' ? 'Verified' : 'Manual',
+      timeline: [
+        { status: 'created', timestamp: pDate, remarks: 'Transaction registered in system' },
+        { status: 'success', timestamp: pDate, remarks: 'Payment marked as successful' }
+      ]
+    }
+
+    const ref = db.collection('transactions').doc(payment.id)
+    batch.set(ref, { id: ref.id, ...transPayload })
+    ops++
+
+    if (ops >= 400) {
+      await batch.commit()
+      console.log(`[Transaction History Migration]: Committed batch of ${ops} transactions.`)
+      ops = 0
+    }
+  }
+
+  if (ops > 0) {
+    await batch.commit()
+    console.log(`[Transaction History Migration]: Committed final batch of ${ops} transactions.`)
+  }
+
+  // Set the migration completed flag
+  await statusRef.set({ transactionsReconstructed: true }, { merge: true })
+  console.log('[Transaction History Migration]: Chronological transactions reconstruction complete.')
+}

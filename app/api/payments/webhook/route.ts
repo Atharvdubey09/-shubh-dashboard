@@ -119,12 +119,59 @@ export async function POST(req: NextRequest) {
         }
 
         transaction.set(paymentRef, paymentPayload)
-        return { duplicate: false, studentName: student.name, amount }
+        return {
+          duplicate: false,
+          studentName: student.name,
+          amount,
+          studentClass: student.class || 0,
+          studentRoll: student.roll || 'N/A',
+          studentPhone: student.parentPhone || student.studentPhone || 'N/A',
+          receiptNumber,
+          createdAt: paymentPayload.createdAt,
+          paymentMode,
+        }
       })
 
       if (!result.duplicate) {
         // Recalculate balances
         await adminRecalculateStudentFees(db, studentId)
+
+        // Write transaction history entry
+        const pDate = result.createdAt || new Date().toISOString()
+        const todayStr = pDate.split('T')[0]
+        const timeStr = pDate.split('T')[1].slice(0, 8)
+        
+        await db.collection('transactions').doc(paymentId).set({
+          id: paymentId,
+          studentId,
+          studentName: result.studentName,
+          studentClass: result.studentClass || 0,
+          studentRoll: result.studentRoll || 'N/A',
+          studentPhone: result.studentPhone || 'N/A',
+          transactionType: 'payment',
+          amount: result.amount,
+          discount: 0,
+          fine: 0,
+          netAmount: result.amount,
+          paymentMethod: result.paymentMode,
+          paymentStatus: 'success',
+          collectionSource: `Razorpay Webhook`,
+          collectedBy: 'System',
+          date: todayStr,
+          time: timeStr,
+          receiptNumber: result.receiptNumber,
+          razorpayPaymentId: paymentId,
+          razorpayOrderId: orderId,
+          notes: `Recorded via Webhook (${eventName})`,
+          createdAt: pDate,
+          updatedAt: pDate,
+          docRef: `payments/${paymentId}`,
+          verificationStatus: 'Verified',
+          timeline: [
+            { status: 'created', timestamp: pDate, remarks: 'Transaction registered in system via webhook' },
+            { status: 'success', timestamp: pDate, remarks: `Payment marked as successful via Razorpay Webhook (${eventName})` }
+          ]
+        })
 
         // Write webhook payment success history
         await writeStudentHistoryAdmin(db, {
@@ -153,9 +200,47 @@ export async function POST(req: NextRequest) {
       const errorMsg = paymentEntity.error_description || 'Payment failed'
       const studentId = paymentEntity.notes?.studentId || 'unknown'
       const studentName = paymentEntity.notes?.studentName || 'Student'
+      const studentClass = Number(paymentEntity.notes?.studentClass) || 0
+      const studentRoll = paymentEntity.notes?.studentRoll || 'N/A'
       
       console.error(`[Payment Failed] Razorpay Webhook failed. Payment ID: ${paymentId}, Student: ${studentId}, Reason: ${errorMsg}`)
       
+      const pDate = new Date().toISOString()
+      const todayStr = pDate.split('T')[0]
+      const timeStr = pDate.split('T')[1].slice(0, 8)
+
+      // Write failed transaction history
+      await db.collection('transactions').doc(paymentId).set({
+        id: paymentId,
+        studentId,
+        studentName,
+        studentClass,
+        studentRoll,
+        transactionType: 'failed_attempt',
+        amount: paymentEntity.amount / 100,
+        discount: 0,
+        fine: 0,
+        netAmount: paymentEntity.amount / 100,
+        paymentMethod: 'Razorpay',
+        paymentStatus: 'failed',
+        collectionSource: 'Razorpay Webhook',
+        collectedBy: 'System',
+        date: todayStr,
+        time: timeStr,
+        receiptNumber: `RCPT-FAILED-${Date.now()}`,
+        razorpayPaymentId: paymentId,
+        razorpayOrderId: paymentEntity.order_id || '',
+        notes: `Razorpay payment failed. Reason: ${errorMsg}`,
+        createdAt: pDate,
+        updatedAt: pDate,
+        docRef: `failed_attempts/${paymentId}`,
+        verificationStatus: 'Failed',
+        timeline: [
+          { status: 'created', timestamp: pDate, remarks: 'Transaction registered as failed' },
+          { status: 'failed', timestamp: pDate, remarks: `Payment attempt failed: ${errorMsg}` }
+        ]
+      })
+
       // Write payment failed history
       await writeStudentHistoryAdmin(db, {
         studentId,

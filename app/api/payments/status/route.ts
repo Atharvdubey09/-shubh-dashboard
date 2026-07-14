@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminDb, runHistoryReconstructionMigration } from '@/lib/firebase-admin'
+import { getAdminDb, runHistoryReconstructionMigration, runTransactionReconstructionMigration } from '@/lib/firebase-admin'
 
 export async function GET(req: NextRequest) {
   try {
@@ -22,6 +22,12 @@ export async function GET(req: NextRequest) {
     if (!metadata.historyReconstructed) {
       runHistoryReconstructionMigration().catch(err => {
         console.error('[History Migration Failed]:', err)
+      })
+    }
+
+    if (!metadata.transactionsReconstructed) {
+      runTransactionReconstructionMigration().catch(err => {
+        console.error('[Transaction History Migration Failed]:', err)
       })
     }
 

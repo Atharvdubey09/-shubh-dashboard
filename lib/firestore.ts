@@ -850,6 +850,37 @@ export async function createStudent(input: StudentFormValues, photoUrl?: string)
       source: 'Manual Edit',
       paymentId: paymentRef.id
     })
+
+    const pDate = new Date().toISOString()
+    const time = pDate.split('T')[1].slice(0, 8)
+    await writeTransaction(paymentRef.id, {
+      studentId: payload.id,
+      studentName: payload.name,
+      studentClass: payload.class || 0,
+      studentRoll: 'N/A',
+      studentPhone: payload.parentPhone || payload.studentPhone || 'N/A',
+      transactionType: 'payment',
+      amount: admissionPaid,
+      discount: 0,
+      fine: 0,
+      netAmount: admissionPaid,
+      paymentMethod: 'Cash',
+      paymentStatus: 'success',
+      collectionSource: 'Manual Collection',
+      collectedBy: 'Owner',
+      date: payload.joined,
+      time,
+      receiptNumber: paymentPayload.receiptNumber,
+      notes: 'Admission payment',
+      createdAt: pDate,
+      updatedAt: pDate,
+      docRef: `payments/${paymentRef.id}`,
+      verificationStatus: 'Manual',
+      timeline: [
+        { status: 'created', timestamp: pDate, remarks: 'Transaction registered in system' },
+        { status: 'success', timestamp: pDate, remarks: 'Admission payment collected manually' }
+      ]
+    })
   }
 
   return payload
@@ -955,6 +986,37 @@ export async function createPayment(input: PaymentFormValues) {
   await setDoc(paymentRef, paymentPayload)
   await recalculateStudentFees(student.id)
 
+  const pDate = new Date().toISOString()
+  const time = pDate.split('T')[1].slice(0, 8)
+  await writeTransaction(paymentId, {
+    studentId: student.id,
+    studentName: student.name,
+    studentClass: student.class || 0,
+    studentRoll: 'N/A',
+    studentPhone: student.parentPhone || student.studentPhone || 'N/A',
+    transactionType: 'payment',
+    amount: input.amount,
+    discount: 0,
+    fine: 0,
+    netAmount: input.amount,
+    paymentMethod: input.paymentMode,
+    paymentStatus: 'success',
+    collectionSource: 'Manual Collection',
+    collectedBy: 'Owner',
+    date: paymentDate,
+    time,
+    receiptNumber,
+    notes: input.notes || '',
+    createdAt: pDate,
+    updatedAt: pDate,
+    docRef: `payments/${paymentId}`,
+    verificationStatus: 'Manual',
+    timeline: [
+      { status: 'created', timestamp: pDate, remarks: 'Transaction registered in system' },
+      { status: 'success', timestamp: pDate, remarks: `Payment of ${input.amount} recorded manually` }
+    ]
+  })
+
   await writeStudentHistory({
     studentId: student.id,
     studentName: student.name,
@@ -1005,6 +1067,33 @@ export async function updatePayment(paymentId: string, input: PaymentFormValues)
     await recalculateStudentFees(payment.studentId)
   }
 
+  // Update transaction document
+  try {
+    const studentRef = doc(db(), 'students', input.studentId)
+    const studentSnap = await getDoc(studentRef)
+    const student = studentSnap.exists() ? normalizeStudent(studentSnap.data()) : null
+    
+    const pDate = new Date().toISOString()
+    const time = pDate.split('T')[1].slice(0, 8)
+    await writeTransaction(paymentId, {
+      studentId: input.studentId,
+      studentName: input.studentName,
+      studentClass: student?.class || 0,
+      studentRoll: 'N/A',
+      studentPhone: student?.parentPhone || student?.studentPhone || 'N/A',
+      amount: input.amount,
+      netAmount: input.amount,
+      paymentMethod: input.paymentMode,
+      date: input.date,
+      time,
+      receiptNumber: input.receiptNumber || payment.receiptNumber,
+      notes: input.notes || '',
+      updatedAt: pDate,
+    })
+  } catch (err) {
+    console.error('Failed to update transaction during updatePayment:', err)
+  }
+
   await writeStudentHistory({
     studentId: input.studentId,
     studentName: input.studentName,
@@ -1038,6 +1127,17 @@ export async function removePayment(paymentId: string) {
     source: 'Manual Edit',
     paymentId: paymentId
   })
+
+  // Update transaction status to cancelled
+  try {
+    await writeTransaction(paymentId, {
+      paymentStatus: 'cancelled',
+      netAmount: 0,
+      updatedAt: new Date().toISOString(),
+    })
+  } catch (err) {
+    console.error('Failed to update transaction during removePayment:', err)
+  }
 
   await deleteDoc(paymentRef)
   await recalculateStudentFees(payment.studentId)
@@ -2482,6 +2582,36 @@ export function subscribeStudentHistory(
     collection(db(), 'student_history'),
     where('studentId', '==', studentId),
     orderBy('timestamp', 'asc')
+  )
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const records: any[] = []
+      snapshot.forEach((docSnap) => {
+        records.push({ id: docSnap.id, ...docSnap.data() })
+      })
+      onChange(records)
+    },
+    onError
+  )
+}
+
+export async function writeTransaction(id: string, transactionData: any) {
+  const ref = doc(db(), 'transactions', id)
+  await setDoc(ref, {
+    id,
+    ...transactionData,
+    updatedAt: new Date().toISOString(),
+  }, { merge: true })
+}
+
+export function subscribeTransactions(
+  onChange: (transactions: any[]) => void,
+  onError?: (error: unknown) => void,
+) {
+  const q = query(
+    collection(db(), 'transactions'),
+    orderBy('createdAt', 'desc')
   )
   return onSnapshot(
     q,

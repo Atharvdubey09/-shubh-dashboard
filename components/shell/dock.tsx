@@ -12,6 +12,7 @@ import {
   Settings,
   Users,
   BookOpen,
+  History,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -21,6 +22,7 @@ const items = [
   { href: '/families', label: 'Families', icon: Users },
   { href: '/fees', label: 'Fees', icon: CreditCard },
   { href: '/expenses', label: 'Expenses', icon: Wallet },
+  { href: '/transactions', label: 'Transaction History', icon: History },
   { href: '/academics', label: 'Academics', icon: BookOpen },
   { href: '/reports', label: 'Reports', icon: BarChart3 },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
@@ -49,7 +51,7 @@ export function Dock() {
     }
 
     if (userRole === 'Teacher') {
-      if (['/fees', '/expenses', '/reports', '/families', '/settings'].includes(item.href)) return false
+      if (['/fees', '/expenses', '/reports', '/families', '/settings', '/transactions'].includes(item.href)) return false
       return true
     }
 
