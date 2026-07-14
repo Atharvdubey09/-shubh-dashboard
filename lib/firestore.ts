@@ -1454,13 +1454,13 @@ export function deriveDashboardData(
   const activeStudents = students.filter((student) => student.status === 'active').length
   const pendingFees = students.reduce((sum, student) => sum + student.pending, 0)
   const monthCollection = payments
-    .filter((payment) => monthKey(payment.date) === currentMonth)
+    .filter((payment) => payment.status === 'paid' && monthKey(payment.date) === currentMonth)
     .reduce((sum, payment) => sum + payment.amount, 0)
   const monthExpenses = expenses
     .filter((expense) => monthKey(expense.date) === currentMonth)
     .reduce((sum, expense) => sum + expense.amount, 0)
   const todayCollection = payments
-    .filter((payment) => sameDay(payment.date, today))
+    .filter((payment) => payment.status === 'paid' && sameDay(payment.date, today))
     .reduce((sum, payment) => sum + payment.amount, 0)
 
   const year = now.getFullYear()
@@ -1683,7 +1683,9 @@ export function deriveDashboardData(
     })),
   ]
 
-  const totalRevenueCollected = payments.reduce((sum, p) => sum + p.amount, 0)
+  const totalRevenueCollected = payments
+    .filter((p) => p.status === 'paid')
+    .reduce((sum, p) => sum + p.amount, 0)
 
   return {
     stats: {
@@ -1796,7 +1798,9 @@ export async function recalculateStudentFees(studentId: string) {
   const paymentsSnap = await getDocs(paymentQuery)
   const payments = paymentsSnap.docs.map((docSnap) => normalizePayment({ id: docSnap.id, ...docSnap.data() }))
   payments.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt))
-  const paid = payments.reduce((sum, p) => sum + p.amount, 0)
+  const paid = payments
+    .filter((p) => p.status === 'paid')
+    .reduce((sum, p) => sum + p.amount, 0)
   const pending = Math.max(student.totalFee - paid, 0)
   const updatedSchedule = student.feeSchedule.map((item) => {
     const newItem = {
