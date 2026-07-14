@@ -1683,6 +1683,8 @@ export function deriveDashboardData(
     })),
   ]
 
+  const totalRevenueCollected = payments.reduce((sum, p) => sum + p.amount, 0)
+
   return {
     stats: {
       totalStudents: students.length,
@@ -1701,6 +1703,7 @@ export function deriveDashboardData(
       currentMonthTotalExpected,
       totalCoachingFeeValue,
       totalRemainingRevenue,
+      totalRevenueCollected,
       annualExpenseForecast,
     },
     upcomingPayments,

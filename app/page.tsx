@@ -416,7 +416,7 @@ export default function DashboardPage() {
               >
                 <div className={cn('transition-all duration-300', isLabelBlurred('Total Revenue') ? 'blur-[8px] opacity-30 select-none pointer-events-none' : '')}>
                   <p className="text-[10px] font-semibold text-violet-400 uppercase tracking-widest mb-1">Total Revenue Collected</p>
-                  <p className="text-2xl font-bold text-white tabular-nums">{formatINR(stats.totalCoachingFeeValue - stats.totalRemainingRevenue)}</p>
+                  <p className="text-2xl font-bold text-white tabular-nums">{formatINR(stats.totalRevenueCollected)}</p>
                   <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                     <ReceiptText className="h-4 w-4 text-violet-400" />
                   </div>

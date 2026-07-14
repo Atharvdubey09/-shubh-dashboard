@@ -212,6 +212,7 @@ export interface DashboardStats {
   currentMonthTotalExpected: number
   totalCoachingFeeValue: number
   totalRemainingRevenue: number
+  totalRevenueCollected: number
   annualExpenseForecast: number
 }
 
