@@ -1,7 +1,7 @@
 export type PaymentType = 'Full Payment' | 'Monthly' | 'Split'
 export type PaymentStatus = 'paid' | 'upcoming' | 'overdue' | 'due-today' | 'critical' | 'partial'
 export type RecordStatus = 'active' | 'inactive'
-export type PaymentMode = 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Cheque'
+export type PaymentMode = 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Cheque' | 'Razorpay' | 'Razorpay Link' | 'Razorpay QR'
 
 export interface FeePlanInstallment {
   amount: number
@@ -140,6 +140,31 @@ export interface CashTransaction {
   createdAt: string
 }
 
+export interface TeachingRecord {
+  id: string
+  classId: number
+  subject: string
+  teacherId?: string // Optional for backward compatibility before migration
+  teacherName: string
+  date: string
+  chapter: string
+  topic: string
+  lectureNumber: number
+  durationMin?: number
+  homework?: string
+  notes?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TeacherProfile {
+  id: string
+  displayName: string
+  status: 'active' | 'inactive'
+  role?: string
+  createdAt: string
+  updatedAt: string
+}
 
 export interface AppSettings {
   coachingName: string

@@ -59,6 +59,15 @@ export default function StudentProfilePage() {
   const [linkError, setLinkError] = useState('')
   const [linkBusy, setLinkBusy] = useState(false)
 
+  // Razorpay integration states
+  const [razorpayModalOpen, setRazorpayModalOpen] = useState(false)
+  const [razorpayAmount, setRazorpayAmount] = useState('')
+  const [razorpayMethod, setRazorpayMethod] = useState<'checkout' | 'link'>('checkout')
+  const [razorpayLoading, setRazorpayLoading] = useState(false)
+  const [paymentLink, setPaymentLink] = useState('')
+  const [paymentLinkCopied, setPaymentLinkCopied] = useState(false)
+  const [razorpayError, setRazorpayError] = useState('')
+
   async function handleLinkExistingSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!student || !selectedFamilyId) return
@@ -201,6 +210,123 @@ export default function StudentProfilePage() {
     }
   }
 
+  function loadRazorpayScript(): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (window.hasOwnProperty('Razorpay')) {
+        resolve(true)
+        return
+      }
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.onload = () => resolve(true)
+      script.onerror = () => resolve(false)
+      document.body.appendChild(script)
+    })
+  }
+
+  async function handleRazorpayPayment() {
+    if (!student) return
+    setRazorpayError('')
+    setPaymentLink('')
+    const amountNum = parseFloat(razorpayAmount)
+    if (isNaN(amountNum) || amountNum <= 0) {
+      setRazorpayError('Please enter a valid amount')
+      return
+    }
+
+    setRazorpayLoading(true)
+
+    try {
+      if (razorpayMethod === 'checkout') {
+        // 1. Create order
+        const orderRes = await fetch('/api/payments/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ studentId: student.id, amount: amountNum }),
+        })
+        const orderData = await orderRes.json()
+        if (!orderRes.ok) {
+          throw new Error(orderData.error || 'Failed to create order')
+        }
+
+        // 2. Load Razorpay script
+        const isScriptLoaded = await loadRazorpayScript()
+        if (!isScriptLoaded) {
+          throw new Error('Failed to load Razorpay checkout script')
+        }
+
+        // 3. Open Razorpay Checkout modal
+        const RazorpayConstructor = (window as any).Razorpay
+        const rzp = new RazorpayConstructor({
+          key: orderData.keyId,
+          amount: orderData.amount,
+          currency: orderData.currency,
+          name: 'Shubh Classes',
+          description: `Coaching Fee Collection for ${student.name}`,
+          order_id: orderData.orderId,
+          prefill: {
+            name: student.name,
+            contact: student.parentPhone || student.studentPhone || '',
+          },
+          theme: {
+            color: '#4f46e5',
+          },
+          handler: async function (response: any) {
+            try {
+              setRazorpayLoading(true)
+              const verifyRes = await fetch('/api/payments/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                  studentId: student.id,
+                  amount: amountNum,
+                }),
+              })
+              const verifyData = await verifyRes.json()
+              if (!verifyRes.ok) {
+                throw new Error(verifyData.error || 'Signature verification failed')
+              }
+              toast({ title: 'Payment Recorded', description: `Successfully verified and logged Razorpay payment.`, tone: 'success' })
+              setRazorpayModalOpen(false)
+            } catch (err: any) {
+              setRazorpayError(err.message || 'Verification failed')
+            } finally {
+              setRazorpayLoading(false)
+            }
+          },
+          modal: {
+            ondismiss: function () {
+              setRazorpayLoading(false)
+            },
+          },
+        })
+        rzp.open()
+      } else {
+        // Create payment link
+        const linkRes = await fetch('/api/payments/create-payment-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ studentId: student.id, amount: amountNum }),
+        })
+        const linkData = await linkRes.json()
+        if (!linkRes.ok) {
+          throw new Error(linkData.error || 'Failed to create payment link')
+        }
+        setPaymentLink(linkData.url)
+        toast({ title: 'Link Generated', description: `Payment link created successfully.`, tone: 'success' })
+      }
+    } catch (err: any) {
+      setRazorpayError(err.message || 'Payment operation failed')
+    } finally {
+      if (razorpayMethod !== 'checkout') {
+        setRazorpayLoading(false)
+      }
+    }
+  }
+
   if (loading) {
     return <div className="text-sm text-muted-foreground">Loading student data...</div>
   }
@@ -275,13 +401,28 @@ export default function StudentProfilePage() {
             </button>
           )}
           {userRole !== 'Teacher' && (
-            <button
-              type="button"
-              onClick={() => openQuickAdd({ tab: 'fee', studentId: student.id })}
-              className="flex h-10 items-center gap-2 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-            >
-              Collect Fee
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRazorpayAmount(student.pending > 0 ? student.pending.toString() : '')
+                  setRazorpayModalOpen(true)
+                  setPaymentLink('')
+                  setRazorpayError('')
+                  setRazorpayMethod('checkout')
+                }}
+                className="flex h-10 items-center gap-2 rounded-full bg-indigo-600 px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 shadow-sm"
+              >
+                💳 Collect via Razorpay
+              </button>
+              <button
+                type="button"
+                onClick={() => openQuickAdd({ tab: 'fee', studentId: student.id })}
+                className="flex h-10 items-center gap-2 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                Collect Fee
+              </button>
+            </div>
           )}
         </div>
       </Card>
@@ -682,6 +823,113 @@ export default function StudentProfilePage() {
                 </div>
               </form>
             )}
+          </Card>
+        </div>
+      )}
+
+      {razorpayModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/45 px-4 backdrop-blur-sm animate-fade-in">
+          <Card className="w-full max-w-md p-6 animate-fade-up shadow-2xl border-border">
+            <h3 className="text-base font-bold tracking-tight mb-1">Collect via Razorpay</h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Collect payment from {student.name} using Razorpay Checkout or generate a remote payment link.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold mb-1">Amount (INR)</label>
+                <input
+                  type="number"
+                  className="h-10 w-full rounded-xl border border-border px-3 text-sm bg-muted/20 outline-none focus:border-ring"
+                  value={razorpayAmount}
+                  onChange={(e) => setRazorpayAmount(e.target.value)}
+                  placeholder="Enter amount"
+                />
+              </div>
+
+              <div className="flex gap-4 text-xs font-medium border-b border-border pb-2">
+                <button
+                  type="button"
+                  onClick={() => { setRazorpayMethod('checkout'); setPaymentLink(''); }}
+                  className={cn(
+                    'pb-1 border-b-2 transition-colors',
+                    razorpayMethod === 'checkout' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'
+                  )}
+                >
+                  Razorpay Checkout
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setRazorpayMethod('link'); setPaymentLink(''); }}
+                  className={cn(
+                    'pb-1 border-b-2 transition-colors',
+                    razorpayMethod === 'link' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'
+                  )}
+                >
+                  Generate Payment Link
+                </button>
+              </div>
+
+              {razorpayError && (
+                <p className="text-xs text-destructive bg-destructive/10 p-2 rounded-lg">{razorpayError}</p>
+              )}
+
+              {paymentLink && (
+                <div className="rounded-xl border border-border p-3 bg-muted/30">
+                  <p className="text-xs font-semibold mb-1">Payment Link Generated:</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={paymentLink}
+                      className="h-8 flex-1 text-xs px-2.5 rounded-lg border border-border bg-card outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(paymentLink);
+                        setPaymentLinkCopied(true);
+                        setTimeout(() => setPaymentLinkCopied(false), 2000);
+                      }}
+                      className="h-8 px-3 text-xs bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 shrink-0"
+                    >
+                      {paymentLinkCopied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRazorpayModalOpen(false)
+                    setRazorpayError('')
+                    setPaymentLink('')
+                  }}
+                  disabled={razorpayLoading}
+                  className="flex-1 h-10 rounded-xl border border-border text-sm font-semibold hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                {!paymentLink && (
+                  <button
+                    type="button"
+                    onClick={() => void handleRazorpayPayment()}
+                    disabled={razorpayLoading}
+                    className="flex-1 h-10 rounded-xl bg-indigo-600 text-sm font-semibold text-white hover:opacity-90 flex items-center justify-center gap-1.5"
+                  >
+                    {razorpayLoading ? (
+                      'Processing...'
+                    ) : razorpayMethod === 'checkout' ? (
+                      'Open Checkout'
+                    ) : (
+                      'Generate Link'
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
           </Card>
         </div>
       )}

@@ -67,9 +67,32 @@ export default function SettingsPage() {
   const { toast } = useToast()
   const [form, setForm] = useState(settings)
 
+  const [gateway, setGateway] = useState<{
+    isConnected: boolean
+    isWebhookConfigured: boolean
+    mode: string
+    keyId: string
+    lastSyncStatus: string
+  } | null>(null)
+
   useEffect(() => {
     setForm(settings)
   }, [settings])
+
+  useEffect(() => {
+    async function fetchGatewayDetails() {
+      try {
+        const res = await fetch('/api/payments/status')
+        if (res.ok) {
+          const data = await res.json()
+          setGateway(data)
+        }
+      } catch (err) {
+        console.error('Failed to fetch gateway details:', err)
+      }
+    }
+    void fetchGatewayDetails()
+  }, [])
 
   async function handleSave() {
     try {
@@ -208,7 +231,7 @@ export default function SettingsPage() {
 
       {/* Admin Actions */}
       {(userRole === 'Owner' || userRole === 'Admin') && (
-        <div className="mt-5 grid gap-5 lg:grid-cols-2 animate-fade-up [animation-delay:180ms]">
+        <div className="mt-5 grid gap-5 lg:grid-cols-3 animate-fade-up [animation-delay:180ms]">
           {userRole === 'Owner' && (
             <Card className="p-6 flex flex-col justify-between">
               <div>
@@ -241,6 +264,68 @@ export default function SettingsPage() {
             >
               View Deleted Registry
             </Link>
+          </Card>
+
+          <Card className="p-6 flex flex-col justify-between border-l-4 border-l-indigo-600 bg-card">
+            <div>
+              <p className="micro-label mb-1">Payment Integration</p>
+              <h2 className="text-base font-semibold tracking-tight mb-4">Payment Gateway</h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block">
+                    <span className="micro-label mb-1.5 block">Razorpay Key ID</span>
+                    <input
+                      className={cn(inputCls, "bg-muted/30 cursor-not-allowed text-xs font-mono")}
+                      value={gateway?.keyId || 'Not Configured'}
+                      readOnly
+                      disabled
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="rounded-xl border border-border p-3">
+                    <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Connection</span>
+                    {gateway?.isConnected ? (
+                      <span className="font-bold text-success">Connected</span>
+                    ) : (
+                      <span className="font-bold text-destructive">Disconnected</span>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-border p-3">
+                    <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Webhook</span>
+                    {gateway?.isWebhookConfigured ? (
+                      <span className="font-bold text-success">Active</span>
+                    ) : (
+                      <span className="font-bold text-destructive">Inactive</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="rounded-xl border border-border p-3">
+                    <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Environment</span>
+                    <span className={cn(
+                      'font-bold',
+                      gateway?.mode === 'Live Mode' ? 'text-emerald-500' : gateway?.mode === 'Test Mode' ? 'text-amber-500' : 'text-muted-foreground'
+                    )}>
+                      {gateway?.mode || 'None'}
+                    </span>
+                  </div>
+
+                  <div className="rounded-xl border border-border p-3">
+                    <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Web Health</span>
+                    <span className="font-bold text-foreground">{gateway?.lastSyncStatus || '—'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4 rounded-xl bg-accent p-3 text-[10px] leading-relaxed text-accent-foreground">
+              👉 Configure <code className="font-mono bg-card/60 px-1 py-0.5 rounded">RAZORPAY_KEY_ID</code> and <code className="font-mono bg-card/60 px-1 py-0.5 rounded">RAZORPAY_KEY_SECRET</code> in environment to connect.
+            </div>
           </Card>
         </div>
       )}

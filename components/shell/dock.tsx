@@ -11,6 +11,7 @@ import {
   CalendarDays,
   Settings,
   Users,
+  BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +21,7 @@ const items = [
   { href: '/families', label: 'Families', icon: Users },
   { href: '/fees', label: 'Fees', icon: CreditCard },
   { href: '/expenses', label: 'Expenses', icon: Wallet },
+  { href: '/academics', label: 'Academics', icon: BookOpen },
   { href: '/reports', label: 'Reports', icon: BarChart3 },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/settings', label: 'Settings', icon: Settings },

@@ -57,6 +57,8 @@ import {
   type Family,
   type AuditLog,
   type CashTransaction,
+  type TeachingRecord,
+  type TeacherProfile,
 } from '@/lib/domain'
 import { getFirebaseDb, getFirebaseStorage } from '@/lib/firebase'
 
@@ -184,7 +186,10 @@ function toPaymentMode(value: unknown): PaymentMode {
     value === 'UPI' ||
     value === 'Card' ||
     value === 'Bank Transfer' ||
-    value === 'Cheque'
+    value === 'Cheque' ||
+    value === 'Razorpay' ||
+    value === 'Razorpay Link' ||
+    value === 'Razorpay QR'
   ) {
     return value
   }
@@ -2218,3 +2223,101 @@ export async function unlinkStudentFromFamily(studentId: string) {
     const docRef = doc(dbRef, 'cashTransactions', id)
     await deleteDoc(docRef)
   }
+
+// --------------------------------------------------------------------------------------
+// TEACHING RECORDS (Academics Tracker)
+// --------------------------------------------------------------------------------------
+
+export function subscribeTeachingRecords(
+  classId: number,
+  onChange: (records: TeachingRecord[]) => void,
+  onError?: (error: unknown) => void
+) {
+  const coll = collection(db(), 'teaching_records')
+  const q = query(coll, where('classId', '==', classId))
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const records: TeachingRecord[] = []
+      snapshot.forEach((docSnap) => {
+        records.push({ id: docSnap.id, ...docSnap.data() } as TeachingRecord)
+      })
+      records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      onChange(records)
+    },
+    onError
+  )
+}
+
+export async function addTeachingRecord(input: Omit<TeachingRecord, 'id' | 'createdAt' | 'updatedAt'>) {
+  const coll = collection(db(), 'teaching_records')
+  const newRef = doc(coll)
+  const payload: TeachingRecord = {
+    ...input,
+    id: newRef.id,
+    createdAt: todayISO(),
+    updatedAt: todayISO(),
+  }
+  await setDoc(newRef, stripUndefinedDeep(payload))
+  return payload
+}
+
+export async function updateTeachingRecord(id: string, updates: Partial<Omit<TeachingRecord, 'id' | 'createdAt' | 'updatedAt'>>) {
+  const ref = doc(db(), 'teaching_records', id)
+  await updateDoc(ref, {
+    ...stripUndefinedDeep(updates),
+    updatedAt: todayISO(),
+  })
+}
+
+export async function deleteTeachingRecord(id: string, pin: string) {
+  if (pin !== '2006') {
+    throw new Error('Invalid PIN. Deletion blocked.')
+  }
+  const ref = doc(db(), 'teaching_records', id)
+  await deleteDoc(ref)
+}
+
+// --------------------------------------------------------------------------------------
+// TEACHER PROFILES
+// --------------------------------------------------------------------------------------
+
+export function subscribeTeachers(
+  onChange: (teachers: TeacherProfile[]) => void,
+  onError?: (error: unknown) => void
+) {
+  const coll = collection(db(), 'teachers')
+  return onSnapshot(
+    coll,
+    (snapshot) => {
+      const records: TeacherProfile[] = []
+      snapshot.forEach((docSnap) => {
+        records.push({ id: docSnap.id, ...docSnap.data() } as TeacherProfile)
+      })
+      records.sort((a, b) => a.displayName.localeCompare(b.displayName))
+      onChange(records)
+    },
+    onError
+  )
+}
+
+export async function addTeacherProfile(input: Omit<TeacherProfile, 'id' | 'createdAt' | 'updatedAt'>) {
+  const coll = collection(db(), 'teachers')
+  const newRef = doc(coll)
+  const payload: TeacherProfile = {
+    ...input,
+    id: newRef.id,
+    createdAt: todayISO(),
+    updatedAt: todayISO(),
+  }
+  await setDoc(newRef, stripUndefinedDeep(payload))
+  return payload
+}
+
+export async function updateTeacherProfile(id: string, updates: Partial<Omit<TeacherProfile, 'id' | 'createdAt' | 'updatedAt'>>) {
+  const ref = doc(db(), 'teachers', id)
+  await updateDoc(ref, {
+    ...stripUndefinedDeep(updates),
+    updatedAt: todayISO(),
+  })
+}
