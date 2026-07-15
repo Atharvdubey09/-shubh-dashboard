@@ -2603,8 +2603,7 @@ export function subscribeStudentHistory(
 ) {
   const q = query(
     collection(db(), 'student_history'),
-    where('studentId', '==', studentId),
-    orderBy('timestamp', 'asc')
+    where('studentId', '==', studentId)
   )
   return onSnapshot(
     q,
@@ -2612,6 +2611,11 @@ export function subscribeStudentHistory(
       const records: any[] = []
       snapshot.forEach((docSnap) => {
         records.push({ id: docSnap.id, ...docSnap.data() })
+      })
+      records.sort((a, b) => {
+        const tA = a.timestamp || ''
+        const tB = b.timestamp || ''
+        return tA.localeCompare(tB)
       })
       onChange(records)
     },
