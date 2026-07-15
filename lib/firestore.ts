@@ -1456,19 +1456,23 @@ export function deriveDashboardData(
       .filter((student) => student.status === 'active')
       .map((student) => student.id)
   )
+  const nonDeletedStudentIds = new Set(
+    students
+      .map((student) => student.id)
+  )
 
   const activeStudents = activeStudentIds.size
   const pendingFees = students
     .filter((student) => student.status === 'active')
     .reduce((sum, student) => sum + student.pending, 0)
   const monthCollection = payments
-    .filter((payment) => payment.status === 'paid' && activeStudentIds.has(payment.studentId) && monthKey(payment.date) === currentMonth)
+    .filter((payment) => payment.status === 'paid' && nonDeletedStudentIds.has(payment.studentId) && monthKey(payment.date) === currentMonth)
     .reduce((sum, payment) => sum + payment.amount, 0)
   const monthExpenses = expenses
     .filter((expense) => monthKey(expense.date) === currentMonth)
     .reduce((sum, expense) => sum + expense.amount, 0)
   const todayCollection = payments
-    .filter((payment) => payment.status === 'paid' && activeStudentIds.has(payment.studentId) && sameDay(payment.date, today))
+    .filter((payment) => payment.status === 'paid' && nonDeletedStudentIds.has(payment.studentId) && sameDay(payment.date, today))
     .reduce((sum, payment) => sum + payment.amount, 0)
 
   const year = now.getFullYear()
@@ -1694,7 +1698,7 @@ export function deriveDashboardData(
   ]
 
   const totalRevenueCollected = payments
-    .filter((p) => p.status === 'paid' && activeStudentIds.has(p.studentId))
+    .filter((p) => p.status === 'paid' && nonDeletedStudentIds.has(p.studentId))
     .reduce((sum, p) => sum + p.amount, 0)
 
   return {

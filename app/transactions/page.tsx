@@ -296,8 +296,8 @@ export default function TransactionHistoryPage() {
 
     transactions.forEach((t) => {
       const student = studentMap.get(t.studentId)
-      const isActive = student && student.status === 'active' && student.is_deleted !== true
-      if (!isActive) return
+      const isNotDeleted = student && student.is_deleted !== true
+      if (!isNotDeleted) return
 
       totalTxCount++
       const amount = t.amount || 0
