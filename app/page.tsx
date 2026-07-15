@@ -355,12 +355,12 @@ export default function DashboardPage() {
             <Card className="relative overflow-hidden bg-slate-900 text-white p-5 shadow-lg border-slate-800">
                <div className={cn('transition-all duration-500 ease-out h-full', isLabelBlurred('Net Profit') ? 'pointer-events-none select-none blur-[12px] opacity-30' : 'opacity-100')}>
                  <div className="flex items-center justify-between">
-                   <p className="font-semibold text-xs uppercase tracking-wider text-slate-400">Net Profit</p>
-                   <TrendingUp className="h-4 w-4 text-emerald-400" strokeWidth={2} />
-                 </div>
-                 <div className="mt-4">
-                   <p className="tabular text-3xl font-bold tracking-tight">{formatINR(stats.netProfit)}</p>
-                   <p className="mt-1 text-xs text-slate-400 font-medium">Month-to-date earnings</p>
+                    <p className="font-semibold text-xs uppercase tracking-wider text-slate-400">Net Profit (All-Time)</p>
+                    <TrendingUp className="h-4 w-4 text-emerald-400" strokeWidth={2} />
+                  </div>
+                  <div className="mt-4">
+                    <p className="tabular text-3xl font-bold tracking-tight">{formatINR(stats.netProfit)}</p>
+                    <p className="mt-1 text-xs text-slate-400 font-medium">All-time net earnings</p>
                  </div>
                  <div className="mt-6 pt-4 border-t border-slate-700/50 grid grid-cols-2 gap-4">
                     <div>

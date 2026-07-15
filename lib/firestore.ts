@@ -1697,6 +1697,8 @@ export function deriveDashboardData(
     })),
   ]
 
+  const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0)
+
   const totalRevenueCollected = payments
     .filter((p) => p.status === 'paid' && nonDeletedStudentIds.has(p.studentId))
     .reduce((sum, p) => sum + p.amount, 0)
@@ -1708,7 +1710,7 @@ export function deriveDashboardData(
       pendingFees,
       monthCollection,
       monthExpenses,
-      netProfit: monthCollection - monthExpenses,
+      netProfit: totalRevenueCollected - totalExpenses,
       todayDue: dueToday.reduce((sum, item) => sum + item.amount, 0),
       todayCollection,
       currentMonthExpected,

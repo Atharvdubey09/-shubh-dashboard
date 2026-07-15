@@ -95,7 +95,7 @@ export default function ReportsPage() {
           </div>
           <div>
             <p className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-background/60">
-              Profit
+              All-Time Net Profit
             </p>
             <p className="tabular mt-2 text-2xl font-semibold tracking-tight md:text-3xl">
               {formatINR(stats.netProfit)}
@@ -113,7 +113,7 @@ export default function ReportsPage() {
         </div>
         <div className="border-t border-background/10 px-7 py-5 md:px-9">
           <p className="text-sm leading-relaxed text-background/75 text-pretty">
-            Your coaching earned {formatINR(stats.netProfit)} profit this month.
+            Your coaching has earned {formatINR(stats.netProfit)} net profit overall.
             Expenses are being tracked live from Firestore.
           </p>
         </div>
