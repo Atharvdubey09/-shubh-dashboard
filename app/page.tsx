@@ -7,9 +7,11 @@ import { Card, Avatar } from '@/components/ui-bits'
 import { IncomeChart } from '@/components/dashboard/income-chart'
 import { TodayTasks } from '@/components/dashboard/today-tasks'
 import { CashBalanceCard } from '@/components/dashboard/cash-balance-card'
+import { BusinessHealthCard } from '@/components/dashboard/business-health-card'
 import { useAppData } from '@/components/state/app-data-provider'
 import { formatINR } from '@/lib/domain'
 import { cn } from '@/lib/utils'
+import { subscribeWallets, Wallet, subscribeDailyClosing, DailyClosing, closeDailyDay } from '@/lib/firestore'
 
 import { useAuth } from '@/components/state/auth-provider'
 
@@ -36,11 +38,109 @@ export default function DashboardPage() {
     settings,
     revenueUnlocked,
     setRevenueUnlocked,
+    expenses,
   } = useAppData()
-  const { userRole } = useAuth()
+  const { user, userRole } = useAuth()
+  const userName = user?.displayName || user?.email || 'Authorized User'
   const [unlockOpen, setUnlockOpen] = useState(false)
   const [unlockPassword, setUnlockPassword] = useState('')
   const [unlockError, setUnlockError] = useState<string | null>(null)
+
+  // Wallet Summary & Daily Closing State
+  const showWalletSummary = userRole === 'Owner' || userRole === 'Admin' || userRole === 'Accountant'
+  const [wallets, setWallets] = useState<Wallet[]>([])
+  const [closings, setClosings] = useState<DailyClosing[]>([])
+
+  useEffect(() => {
+    if (showWalletSummary) {
+      const unsub = subscribeWallets((w) => setWallets(w))
+      return () => unsub()
+    }
+  }, [showWalletSummary])
+
+  useEffect(() => {
+    if (showWalletSummary) {
+      const unsub = subscribeDailyClosing((c) => setClosings(c))
+      return () => unsub()
+    }
+  }, [showWalletSummary])
+
+  const cashBal = wallets.find((w) => w.walletId === 'cash')?.balance || 0
+  const bankBal = wallets.find((w) => w.walletId === 'bank')?.balance || 0
+  const razorpayBal = wallets.find((w) => w.walletId === 'razorpay')?.balance || 0
+  const totalOutstandingFees = students
+    .filter((s) => s.status === 'active')
+    .reduce((sum, s) => sum + s.pending, 0)
+  const totalExpensesAmount = expenses.reduce((sum, e) => sum + e.amount, 0)
+  const netBusinessFunds = cashBal + bankBal + razorpayBal - totalExpensesAmount
+
+  // Daily Closing calculations for Today (local date YYYY-MM-DD)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayClosing = closings.find((c) => c.date === todayStr)
+  const isTodayClosed = todayClosing?.status === 'closed'
+
+  // Today's Collection
+  const todayCollection = payments
+    .filter((p) => p.date === todayStr && p.status === 'paid')
+    .reduce((sum, p) => sum + p.amount, 0)
+
+  // Today's Expenses
+  const todayExpenses = expenses
+    .filter((e) => e.date === todayStr && e.status === 'paid')
+    .reduce((sum, e) => sum + e.amount, 0)
+
+  // Yesterday opening balance helper
+  const yesterdayStr = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const yesterdayClosing = closings.find((c) => c.date === yesterdayStr)
+  const todayOpeningBalance = yesterdayClosing
+    ? yesterdayClosing.closingBalance
+    : Math.max(cashBal + bankBal + razorpayBal - todayCollection + todayExpenses, 0)
+  const todayClosingBalance = todayOpeningBalance + todayCollection - todayExpenses
+
+  const dispOpening = todayClosing ? todayClosing.openingBalance : todayOpeningBalance
+  const dispCollection = todayClosing ? todayClosing.collection : todayCollection
+  const dispExpenses = todayClosing ? todayClosing.expenses : todayExpenses
+  const dispClosing = todayClosing ? todayClosing.closingBalance : todayClosingBalance
+
+  const handleCloseToday = async () => {
+    try {
+      await closeDailyDay({
+        date: todayStr,
+        openingBalance: dispOpening,
+        collection: dispCollection,
+        expenses: dispExpenses,
+        deposits: 0,
+        withdrawals: 0,
+        closingBalance: dispClosing,
+        closedBy: userName,
+        notes: 'Closed via Quick Dashboard card'
+      })
+      alert('Today has been closed and locked successfully!')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to close day.')
+    }
+  }
+
+  // 30 Days Forecast Calculations for Dashboard Widget
+  const currentCashBalance = cashBal + bankBal + razorpayBal
+  const startISO = new Date().toISOString().slice(0, 10)
+  const endISO = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+  let studentDues30 = 0
+  students.forEach((s) => {
+    if (s.status !== 'active') return
+    s.feeSchedule?.forEach((item: any) => {
+      if (item.status !== 'paid' && item.dueDate >= startISO && item.dueDate <= endISO) {
+        studentDues30 += item.amount - (item.paidAmount || 0)
+      }
+    })
+  })
+
+  const dbExpenses30 = expenses
+    .filter((e) => e.status !== 'paid' && e.date >= startISO && e.date <= endISO)
+    .reduce((sum, e) => sum + e.amount, 0)
+
+  const projectedBalance30 = currentCashBalance + studentDues30 - dbExpenses30
 
   // Razorpay Gateway status state
   const [gatewayStatus, setGatewayStatus] = useState<{
@@ -306,6 +406,157 @@ export default function DashboardPage() {
         </h1>
         <p className="text-muted-foreground mt-2">Here is what's happening at {settings.coachingName} today.</p>
       </div>
+
+      <BusinessHealthCard />
+
+      {/* Wallet & Daily Closing Summary Component (ERP Accounting Module) */}
+      {showWalletSummary && (
+        <div className="space-y-6 animate-fade-up">
+          {/* Row 1: Today's Closing & Forecast Projections */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Today's Closing Widget */}
+            <Card className="p-5 border border-border bg-card shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between border-b border-border/40 pb-2.5 mb-2.5">
+                  <span className="text-[10px] font-extrabold text-muted-foreground uppercase tracking-wider">Today's Closing</span>
+                  {isTodayClosed ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-rose-500/10 border border-rose-500/20 text-rose-500">
+                      🔴 Locked
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
+                      🟢 Open
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs mt-2">
+                  <div>
+                    <span className="text-[9px] font-bold text-muted-foreground uppercase block">Opening Cash</span>
+                    <p className="font-extrabold text-foreground mt-0.5">{formatINR(dispOpening)}</p>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-muted-foreground uppercase block">Collections</span>
+                    <p className="font-extrabold text-emerald-500 mt-0.5">{formatINR(dispCollection)}</p>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-muted-foreground uppercase block">Expenses</span>
+                    <p className="font-extrabold text-rose-500 mt-0.5">{formatINR(dispExpenses)}</p>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-muted-foreground uppercase block">Closing Cash</span>
+                    <p className="font-extrabold text-indigo-500 mt-0.5">{formatINR(dispClosing)}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-border/40">
+                {!isTodayClosed ? (
+                  <button
+                    onClick={handleCloseToday}
+                    className="h-8 w-full rounded-xl bg-primary text-[10px] font-extrabold text-primary-foreground hover:opacity-90 transition-opacity shadow-[0_3px_8px_rgba(37,99,235,0.15)]"
+                  >
+                    Close Business Day
+                  </button>
+                ) : (
+                  <Link
+                    href="/finance/closing"
+                    className="h-8 w-full rounded-xl border border-border bg-muted/30 hover:bg-muted/80 text-[10px] font-extrabold flex items-center justify-center transition-colors"
+                  >
+                    View Closing Audits
+                  </Link>
+                )}
+              </div>
+            </Card>
+
+            {/* Cash Flow Forecast Widget */}
+            <Card className="p-5 border border-border bg-card shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between border-b border-border/40 pb-2.5 mb-2.5">
+                  <span className="text-[10px] font-extrabold text-muted-foreground uppercase tracking-wider">Cash Flow Forecast (30 Days)</span>
+                  {projectedBalance30 < 0 ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-rose-500/10 border border-rose-500/20 text-rose-500">
+                      🔴 Risk
+                    </span>
+                  ) : currentCashBalance < 25000 + dbExpenses30 ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/10 border border-amber-500/20 text-amber-500">
+                      🟡 Watch
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
+                      🟢 Healthy
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs mt-2">
+                  <div>
+                    <span className="text-[9px] font-bold text-muted-foreground uppercase block">Current Cash</span>
+                    <p className="font-extrabold text-foreground mt-0.5">{formatINR(currentCashBalance)}</p>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-muted-foreground uppercase block">Expected Income</span>
+                    <p className="font-extrabold text-emerald-500 mt-0.5">+{formatINR(studentDues30)}</p>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-muted-foreground uppercase block">Expected Expenses</span>
+                    <p className="font-extrabold text-rose-500 mt-0.5">-{formatINR(dbExpenses30)}</p>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-muted-foreground uppercase block">Projected Cash</span>
+                    <p className="font-extrabold text-indigo-500 mt-0.5">{formatINR(projectedBalance30)}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-border/40">
+                <Link
+                  href="/finance/forecast"
+                  className="h-8 w-full rounded-xl bg-primary text-white text-[10px] font-extrabold flex items-center justify-center hover:opacity-90 transition-opacity shadow-[0_3px_8px_rgba(99,102,241,0.15)]"
+                >
+                  View Cash Forecast Details
+                </Link>
+              </div>
+            </Card>
+          </div>
+
+          {/* Row 2: Internal Wallet Summary */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">Internal Wallet Summary</h3>
+              <Link href="/finance" className="text-[10px] text-indigo-500 hover:text-indigo-600 font-bold flex items-center gap-1">
+                View Detailed Ledger <ArrowUpRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <Link href="/finance?wallet=cash" className="block">
+                <Card className="p-4 bg-card hover:bg-muted/15 border border-border/50 shadow-sm transition-all hover:scale-[1.01] flex flex-col justify-between h-full">
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase">Cash</span>
+                  <p className="text-base font-extrabold text-foreground mt-2">{formatINR(cashBal)}</p>
+                </Card>
+              </Link>
+              <Link href="/finance?wallet=bank" className="block">
+                <Card className="p-4 bg-card hover:bg-muted/15 border border-border/50 shadow-sm transition-all hover:scale-[1.01] flex flex-col justify-between h-full">
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase">Bank</span>
+                  <p className="text-base font-extrabold text-foreground mt-2">{formatINR(bankBal)}</p>
+                </Card>
+              </Link>
+              <Link href="/finance?wallet=razorpay" className="block">
+                <Card className="p-4 bg-card hover:bg-muted/15 border border-border/50 shadow-sm transition-all hover:scale-[1.01] flex flex-col justify-between h-full">
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase">Razorpay</span>
+                  <p className="text-base font-extrabold text-foreground mt-2">{formatINR(razorpayBal)}</p>
+                </Card>
+              </Link>
+              <Link href="/finance" className="block">
+                <Card className="p-4 bg-card hover:bg-muted/15 border border-border/50 shadow-sm transition-all hover:scale-[1.01] flex flex-col justify-between h-full">
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase">Outstanding</span>
+                  <p className="text-base font-extrabold text-foreground mt-2">{formatINR(totalOutstandingFees)}</p>
+                </Card>
+              </Link>
+              <Card className="p-4 bg-gradient-to-br from-indigo-500/10 to-transparent border border-indigo-500/20 shadow-sm flex flex-col justify-between h-full">
+                <span className="text-[9px] font-bold text-indigo-500 uppercase">Net Funds</span>
+                <p className="text-base font-extrabold text-indigo-600 dark:text-indigo-400 mt-2">{formatINR(netBusinessFunds)}</p>
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hero Section: Top Level Metrics */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 animate-fade-up [animation-delay:60ms]">

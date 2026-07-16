@@ -59,6 +59,8 @@ import {
   type CashTransaction,
   type TeachingRecord,
   type TeacherProfile,
+  type HealthScoreWeights,
+  type HealthHistoryEntry,
 } from '@/lib/domain'
 import { getFirebaseDb, getFirebaseStorage } from '@/lib/firebase'
 
@@ -115,6 +117,19 @@ export interface SettingsValues extends AppSettings {
 
 const db = () => getFirebaseDb()
 
+export const DEFAULT_HEALTH_SCORE_WEIGHTS: HealthScoreWeights = {
+  feeCollection: 25,
+  attendance: 15,
+  pendingFees: 15,
+  teacherProductivity: 10,
+  syllabusCompletion: 10,
+  profitMargin: 10,
+  expenseRatio: 5,
+  admissionGrowth: 5,
+  studentRetention: 5,
+  examPerformance: 5,
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   coachingName: 'Shubh Classes',
   ownerName: 'Shubh Dubey',
@@ -126,6 +141,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     rentAndSalary: true,
     utilities: true,
   },
+  healthScoreWeights: DEFAULT_HEALTH_SCORE_WEIGHTS,
 }
 
 function toSafeString(value: unknown, fallback = '') {
@@ -337,6 +353,18 @@ function normalizeSettings(snapshot: DocumentData | null | undefined): SettingsV
       tomorrowsDueFees: toSafeBoolean(snapshot.reminders?.tomorrowsDueFees, DEFAULT_SETTINGS.reminders.tomorrowsDueFees),
       rentAndSalary: toSafeBoolean(snapshot.reminders?.rentAndSalary, DEFAULT_SETTINGS.reminders.rentAndSalary),
       utilities: toSafeBoolean(snapshot.reminders?.utilities, DEFAULT_SETTINGS.reminders.utilities),
+    },
+    healthScoreWeights: {
+      feeCollection: Number(snapshot.healthScoreWeights?.feeCollection ?? DEFAULT_HEALTH_SCORE_WEIGHTS.feeCollection),
+      attendance: Number(snapshot.healthScoreWeights?.attendance ?? DEFAULT_HEALTH_SCORE_WEIGHTS.attendance),
+      pendingFees: Number(snapshot.healthScoreWeights?.pendingFees ?? DEFAULT_HEALTH_SCORE_WEIGHTS.pendingFees),
+      teacherProductivity: Number(snapshot.healthScoreWeights?.teacherProductivity ?? DEFAULT_HEALTH_SCORE_WEIGHTS.teacherProductivity),
+      syllabusCompletion: Number(snapshot.healthScoreWeights?.syllabusCompletion ?? DEFAULT_HEALTH_SCORE_WEIGHTS.syllabusCompletion),
+      profitMargin: Number(snapshot.healthScoreWeights?.profitMargin ?? DEFAULT_HEALTH_SCORE_WEIGHTS.profitMargin),
+      expenseRatio: Number(snapshot.healthScoreWeights?.expenseRatio ?? DEFAULT_HEALTH_SCORE_WEIGHTS.expenseRatio),
+      admissionGrowth: Number(snapshot.healthScoreWeights?.admissionGrowth ?? DEFAULT_HEALTH_SCORE_WEIGHTS.admissionGrowth),
+      studentRetention: Number(snapshot.healthScoreWeights?.studentRetention ?? DEFAULT_HEALTH_SCORE_WEIGHTS.studentRetention),
+      examPerformance: Number(snapshot.healthScoreWeights?.examPerformance ?? DEFAULT_HEALTH_SCORE_WEIGHTS.examPerformance),
     },
     updatedAt: toSafeString(snapshot.updatedAt, todayISO()),
   }
@@ -883,6 +911,28 @@ export async function createStudent(input: StudentFormValues, photoUrl?: string)
     })
   }
 
+  // CRM Welcome Communication Hook
+  try {
+    const parentName = payload.parentName || 'Parent'
+    const messageText = `Dear ${parentName}, welcome! Student ${payload.name} has been successfully registered and admitted into Class ${payload.class}. We look forward to a great academic journey!`
+    const commHistoryRef = doc(collection(db(), 'communication_history'))
+    await setDoc(commHistoryRef, {
+      id: commHistoryRef.id,
+      studentId: payload.id,
+      studentName: payload.name,
+      parentId: payload.parentId || 'N/A',
+      parentName,
+      channel: 'whatsapp',
+      templateId: 'auto_welcome_message',
+      message: messageText,
+      status: 'sent',
+      createdBy: 'System Automation',
+      createdAt: new Date().toISOString()
+    })
+  } catch (err) {
+    console.error('CRM hook failed in createStudent welcome message:', err)
+  }
+
   return payload
 }
 
@@ -957,6 +1007,9 @@ export async function removeStudent(studentId: string) {
 }
 
 export async function createPayment(input: PaymentFormValues) {
+  if (await checkIsDayClosed(input.date)) {
+    throw new Error('Action blocked: This business day has already been locked/closed.')
+  }
   const studentRef = doc(db(), 'students', input.studentId)
   const paymentRef = doc(collection(db(), 'payments'))
   const studentSnap = await getDoc(studentRef)
@@ -1027,6 +1080,47 @@ export async function createPayment(input: PaymentFormValues) {
     paymentId: paymentId
   })
 
+  // Wallet & Ledger Hook
+  try {
+    const walletId = input.paymentMode === 'Cash' ? 'cash' : (['Razorpay', 'Razorpay Link', 'Razorpay QR'].includes(input.paymentMode) ? 'razorpay' : 'bank')
+    const trType = student.paymentType === 'Monthly' ? 'Monthly Fee' : (student.paymentType === 'Split' ? 'Split Fee' : (student.paymentType === 'Full Payment' ? 'Admission Fee' : 'Partial Fee'))
+    await recordWalletActivity({
+      walletId,
+      amount: input.amount,
+      type: trType,
+      method: input.paymentMode,
+      source: student.name,
+      studentId: student.id,
+      paymentId,
+      createdBy: 'System',
+      notes: input.notes
+    })
+  } catch (err) {
+    console.error('Wallet hook failed in createPayment:', err)
+  }
+
+  // CRM Communication Trigger Hook
+  try {
+    const parentName = student.parentName || 'Parent'
+    const messageText = `Dear ${parentName}, we have successfully received payment of ₹${input.amount} for student ${student.name} via ${input.paymentMode}. Thank you!`
+    const commHistoryRef = doc(collection(db(), 'communication_history'))
+    await setDoc(commHistoryRef, {
+      id: commHistoryRef.id,
+      studentId: student.id,
+      studentName: student.name,
+      parentId: student.parentId || 'N/A',
+      parentName,
+      channel: 'whatsapp',
+      templateId: 'auto_payment_confirmation',
+      message: messageText,
+      status: 'sent',
+      createdBy: 'System Automation',
+      createdAt: new Date().toISOString()
+    })
+  } catch (err) {
+    console.error('CRM hook failed in createPayment:', err)
+  }
+
   return paymentPayload
 }
 
@@ -1035,6 +1129,10 @@ export async function updatePayment(paymentId: string, input: PaymentFormValues)
   const snap = await getDoc(paymentRef)
   if (!snap.exists()) throw new Error('Payment not found')
   const payment = normalizePayment(snap.data())
+
+  if (await checkIsDayClosed(payment.date) || await checkIsDayClosed(input.date)) {
+    throw new Error('Action blocked: Old or new business day has already been locked/closed.')
+  }
 
   const fieldsToTrack: Array<keyof Payment> = ['amount', 'date', 'paymentMode', 'notes', 'receiptNumber']
   for (const field of fieldsToTrack) {
@@ -1102,6 +1200,41 @@ export async function updatePayment(paymentId: string, input: PaymentFormValues)
     source: 'Manual Edit',
     paymentId: paymentId
   })
+
+  // Wallet & Ledger Hook
+  try {
+    const oldWalletId = payment.paymentMode === 'Cash' ? 'cash' : (['Razorpay', 'Razorpay Link', 'Razorpay QR'].includes(payment.paymentMode) ? 'razorpay' : 'bank')
+    const newWalletId = input.paymentMode === 'Cash' ? 'cash' : (['Razorpay', 'Razorpay Link', 'Razorpay QR'].includes(input.paymentMode) ? 'razorpay' : 'bank')
+
+    // 1. Reverse old payment from old wallet
+    await recordWalletActivity({
+      walletId: oldWalletId,
+      amount: -payment.amount,
+      type: 'Refund',
+      method: payment.paymentMode,
+      source: `Reversal for edit: ${payment.studentName}`,
+      studentId: payment.studentId,
+      paymentId,
+      createdBy: 'System',
+      notes: `Adjustment reversal for edit on receipt: ${payment.receiptNumber || 'N/A'}`
+    })
+
+    // 2. Add new payment to new wallet
+    const trType = payment.label?.includes('Monthly') ? 'Monthly Fee' : (payment.label?.includes('Split') ? 'Split Fee' : (payment.label?.includes('Full') ? 'Admission Fee' : 'Partial Fee'))
+    await recordWalletActivity({
+      walletId: newWalletId,
+      amount: input.amount,
+      type: trType,
+      method: input.paymentMode,
+      source: input.studentName || payment.studentName,
+      studentId: input.studentId,
+      paymentId,
+      createdBy: 'System',
+      notes: input.notes
+    })
+  } catch (err) {
+    console.error('Wallet hook failed in updatePayment:', err)
+  }
 }
 
 export async function removePayment(paymentId: string) {
@@ -1109,6 +1242,10 @@ export async function removePayment(paymentId: string) {
   const snap = await getDoc(paymentRef)
   if (!snap.exists()) return
   const payment = normalizePayment(snap.data())
+  
+  if (await checkIsDayClosed(payment.date)) {
+    throw new Error('Action blocked: This business day has already been locked/closed.')
+  }
   
   await writeAuditLog(
     'payment_delete',
@@ -1139,11 +1276,32 @@ export async function removePayment(paymentId: string) {
     console.error('Failed to update transaction during removePayment:', err)
   }
 
+  // Wallet & Ledger Hook
+  try {
+    const walletId = payment.paymentMode === 'Cash' ? 'cash' : (['Razorpay', 'Razorpay Link', 'Razorpay QR'].includes(payment.paymentMode) ? 'razorpay' : 'bank')
+    await recordWalletActivity({
+      walletId,
+      amount: -payment.amount,
+      type: 'Refund',
+      method: payment.paymentMode,
+      source: `Reversal: ${payment.studentName}`,
+      studentId: payment.studentId,
+      paymentId,
+      createdBy: 'System',
+      notes: `Reversal of deleted payment receipt: ${payment.receiptNumber || 'N/A'}`
+    })
+  } catch (err) {
+    console.error('Wallet hook failed in removePayment:', err)
+  }
+
   await deleteDoc(paymentRef)
   await recalculateStudentFees(payment.studentId)
 }
 
 export async function createExpense(input: ExpenseFormValues) {
+  if (await checkIsDayClosed(input.date)) {
+    throw new Error('Action blocked: This business day has already been locked/closed.')
+  }
   if (input.isRecurring) {
     const templateId = doc(collection(db(), 'expenses')).id
     const duration = input.durationMonths || 12
@@ -1226,8 +1384,27 @@ export async function createExpense(input: ExpenseFormValues) {
       paidAmount: input.amount,
       createdAt: todayISO(),
       updatedAt: todayISO(),
+      paymentMode: input.paymentMode, // save it in the DB!
     } satisfies Expense)
     await setDoc(refDoc, payload)
+
+    // Wallet & Ledger Hook for Expense
+    try {
+      const walletId = input.paymentMode === 'Cash' ? 'cash' : 'bank'
+      await recordWalletActivity({
+        walletId,
+        amount: -input.amount,
+        type: 'Expense',
+        method: input.paymentMode || 'Bank Transfer',
+        source: input.category,
+        expenseId: refDoc.id,
+        createdBy: 'System',
+        notes: input.note
+      })
+    } catch (err) {
+      console.error('Wallet hook failed in createExpense:', err)
+    }
+
     return payload
   }
 }
@@ -1238,6 +1415,10 @@ export async function updateExpense(expenseId: string, input: ExpenseFormValues)
   if (!snap.exists()) return
 
   const existing = snap.data() as Expense
+
+  if (await checkIsDayClosed(existing.date) || await checkIsDayClosed(input.date)) {
+    throw new Error('Action blocked: Old or new business day has already been locked/closed.')
+  }
 
   if (existing.isRecurring && existing.recurringExpenseId) {
     const templateId = existing.recurringExpenseId
@@ -1366,7 +1547,74 @@ export async function updateExpense(expenseId: string, input: ExpenseFormValues)
       status: input.status,
       paidAmount: input.paidAmount,
       updatedAt: todayISO(),
+      paymentMode: input.paymentMode, // save it in DB!
     }))
+
+    // Wallet & Ledger Hook for Expense Update
+    try {
+      const oldStatus = existing.status || 'paid'
+      const newStatus = input.status || 'paid'
+
+      const oldAmount = existing.amount || 0
+      const newAmount = input.amount || 0
+      
+      const oldWallet = existing.paymentMode === 'Cash' ? 'cash' : 'bank'
+      const newWallet = input.paymentMode === 'Cash' ? 'cash' : 'bank'
+
+      if (oldStatus === 'paid' && newStatus !== 'paid') {
+        // Changed from paid to unpaid: refund/revert deduction
+        await recordWalletActivity({
+          walletId: oldWallet,
+          amount: oldAmount,
+          type: 'Adjustment',
+          method: existing.paymentMode || 'Bank Transfer',
+          source: `Expense unpaid reversal: ${existing.category}`,
+          expenseId,
+          createdBy: 'System',
+          notes: `Reversal because expense was marked as unpaid: ${existing.note}`
+        })
+      } else if (oldStatus !== 'paid' && newStatus === 'paid') {
+        // Changed from unpaid to paid: deduct from wallet
+        await recordWalletActivity({
+          walletId: newWallet,
+          amount: -newAmount,
+          type: 'Expense',
+          method: input.paymentMode || 'Bank Transfer',
+          source: input.category,
+          expenseId,
+          createdBy: 'System',
+          notes: input.note
+        })
+      } else if (oldStatus === 'paid' && newStatus === 'paid') {
+        // Remains paid: adjust if amount or payment mode changed
+        if (oldAmount !== newAmount || oldWallet !== newWallet) {
+          // Reverse old deduction
+          await recordWalletActivity({
+            walletId: oldWallet,
+            amount: oldAmount,
+            type: 'Adjustment',
+            method: existing.paymentMode || 'Bank Transfer',
+            source: `Expense edit reversal: ${existing.category}`,
+            expenseId,
+            createdBy: 'System',
+            notes: `Reversal for edit on expense: ${existing.note}`
+          })
+          // Apply new deduction
+          await recordWalletActivity({
+            walletId: newWallet,
+            amount: -newAmount,
+            type: 'Expense',
+            method: input.paymentMode || 'Bank Transfer',
+            source: input.category,
+            expenseId,
+            createdBy: 'System',
+            notes: input.note
+          })
+        }
+      }
+    } catch (err) {
+      console.error('Wallet hook failed in updateExpense:', err)
+    }
   }
 }
 
@@ -1376,6 +1624,10 @@ export async function removeExpense(expenseId: string) {
   if (!snap.exists()) return
 
   const expense = snap.data() as Expense
+
+  if (await checkIsDayClosed(expense.date)) {
+    throw new Error('Action blocked: This business day has already been locked/closed.')
+  }
 
   if (expense.isRecurring && expense.recurringExpenseId) {
     const templateId = expense.recurringExpenseId
@@ -1401,13 +1653,25 @@ export async function removeExpense(expenseId: string) {
       'future_stopped'
     )
   } else {
-    await writeAuditLog(
-      'expense_delete',
-      expenseId,
-      'amount',
-      String(expense.amount),
-      'deleted'
-    )
+    // Wallet & Ledger Hook for Expense Deletion
+    if (expense.status === 'paid') {
+      try {
+        const walletId = expense.paymentMode === 'Cash' ? 'cash' : 'bank'
+        await recordWalletActivity({
+          walletId,
+          amount: expense.amount,
+          type: 'Adjustment',
+          method: expense.paymentMode || 'Bank Transfer',
+          source: `Expense deletion reversal: ${expense.category}`,
+          expenseId,
+          createdBy: 'System',
+          notes: `Reversal for deleted expense: ${expense.note}`
+        })
+      } catch (err) {
+        console.error('Wallet hook failed in removeExpense:', err)
+      }
+    }
+
     await deleteDoc(refDoc)
   }
 }
@@ -2651,4 +2915,721 @@ export function subscribeTransactions(
     },
     onError
   )
+}
+
+export function subscribeAllTeachingRecords(
+  onChange: (records: TeachingRecord[]) => void,
+  onError?: (error: unknown) => void
+) {
+  const coll = collection(db(), 'teaching_records')
+  return onSnapshot(
+    coll,
+    (snapshot) => {
+      const records: TeachingRecord[] = []
+      snapshot.forEach((docSnap) => {
+        records.push({ id: docSnap.id, ...docSnap.data() } as TeachingRecord)
+      })
+      records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      onChange(records)
+    },
+    onError
+  )
+}
+
+export function subscribeHealthHistory(
+  onChange: (history: HealthHistoryEntry[]) => void,
+  onError?: (error: unknown) => void
+) {
+  const coll = collection(db(), 'business_health_history')
+  const q = query(coll, orderBy('date', 'asc'))
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const records: HealthHistoryEntry[] = []
+      snapshot.forEach((docSnap) => {
+        records.push(docSnap.data() as HealthHistoryEntry)
+      })
+      onChange(records)
+    },
+    onError
+  )
+}
+
+export async function saveHealthScore(entry: HealthHistoryEntry) {
+  const refDoc = doc(db(), 'business_health_history', entry.date)
+  await setDoc(refDoc, entry, { merge: true })
+}
+
+// --------------------------------------------------------------------------------------
+// FINANCE: WALLETS & LEDGER ENGINE
+// --------------------------------------------------------------------------------------
+
+export interface Wallet {
+  walletId: 'cash' | 'bank' | 'razorpay'
+  name: string
+  balance: number
+  updatedAt: string
+}
+
+export interface LedgerEntry {
+  transactionId: string
+  walletId: string | null
+  studentId?: string | null
+  studentName?: string | null
+  paymentId?: string | null
+  expenseId?: string | null
+  amount: number
+  type: string
+  method: string | null
+  source: string | null
+  balanceAfter: number
+  createdBy: string
+  timestamp: string
+  notes?: string | null
+}
+
+export function subscribeWallets(onChange: (wallets: Wallet[]) => void) {
+  const coll = collection(db(), 'wallets')
+  return onSnapshot(coll, (snapshot) => {
+    const list: Wallet[] = []
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data()
+      if (data.walletId) { // ignore config doc
+        list.push(data as Wallet)
+      }
+    })
+    onChange(list)
+  })
+}
+
+export function subscribeLedger(onChange: (ledger: LedgerEntry[]) => void) {
+  const coll = collection(db(), 'ledger')
+  const q = query(coll, orderBy('timestamp', 'desc'))
+  return onSnapshot(q, (snapshot) => {
+    const list: LedgerEntry[] = []
+    snapshot.forEach(docSnap => list.push(docSnap.data() as LedgerEntry))
+    onChange(list)
+  })
+}
+
+export function subscribeWalletConfig(onChange: (config: any) => void) {
+  const docRef = doc(db(), 'wallets', 'config')
+  return onSnapshot(docRef, (snapshot) => {
+    onChange(snapshot.exists() ? snapshot.data() : null)
+  })
+}
+
+export async function setOpeningBalances(cashAmount: number, bankAmount: number, createdBy: string) {
+  const dbRef = db()
+  const configRef = doc(dbRef, 'wallets', 'config')
+  const cashRef = doc(dbRef, 'wallets', 'cash')
+  const bankRef = doc(dbRef, 'wallets', 'bank')
+  const razorpayRef = doc(dbRef, 'wallets', 'razorpay')
+  const ledgerColl = collection(dbRef, 'ledger')
+
+  await runTransaction(dbRef, async (transaction) => {
+    const configSnap = await transaction.get(configRef)
+    if (configSnap.exists() && configSnap.data().initialized) {
+      throw new Error('Opening balances have already been initialized.')
+    }
+
+    transaction.set(configRef, {
+      initialized: true,
+      openingCash: cashAmount,
+      openingBank: bankAmount,
+      timestamp: new Date().toISOString()
+    })
+
+    transaction.set(cashRef, {
+      walletId: 'cash',
+      name: 'Cash Wallet',
+      balance: cashAmount,
+      updatedAt: todayISO(),
+    })
+
+    transaction.set(bankRef, {
+      walletId: 'bank',
+      name: 'Bank Wallet',
+      balance: bankAmount,
+      updatedAt: todayISO(),
+    })
+
+    transaction.set(razorpayRef, {
+      walletId: 'razorpay',
+      name: 'Razorpay Settlement Wallet',
+      balance: 0,
+      updatedAt: todayISO(),
+    })
+
+    const ledgerDocRef1 = doc(ledgerColl)
+    transaction.set(ledgerDocRef1, {
+      transactionId: ledgerDocRef1.id,
+      walletId: 'cash',
+      amount: cashAmount,
+      type: 'Opening Balance',
+      method: 'Cash',
+      source: 'System Initialization',
+      balanceAfter: cashAmount,
+      createdBy,
+      timestamp: new Date().toISOString(),
+      notes: 'Initial cash on hand'
+    })
+
+    const ledgerDocRef2 = doc(ledgerColl)
+    transaction.set(ledgerDocRef2, {
+      transactionId: ledgerDocRef2.id,
+      walletId: 'bank',
+      amount: bankAmount,
+      type: 'Opening Balance',
+      method: 'Bank Transfer',
+      source: 'System Initialization',
+      balanceAfter: bankAmount,
+      createdBy,
+      timestamp: new Date().toISOString(),
+      notes: 'Initial bank balance'
+    })
+  })
+}
+
+export async function recordWalletActivity(params: {
+  walletId: 'cash' | 'bank' | 'razorpay'
+  amount: number
+  type: string
+  method: string | null
+  source: string | null
+  studentId?: string | null
+  studentName?: string | null
+  paymentId?: string | null
+  expenseId?: string | null
+  createdBy: string
+  notes?: string | null
+}) {
+  const dbRef = db()
+  const walletRef = doc(dbRef, 'wallets', params.walletId)
+  const ledgerColl = collection(dbRef, 'ledger')
+  
+  await runTransaction(dbRef, async (transaction) => {
+    const walletSnap = await transaction.get(walletRef)
+    let currentBalance = 0
+    if (walletSnap.exists()) {
+      currentBalance = walletSnap.data().balance || 0
+    }
+    const newBalance = currentBalance + params.amount
+    
+    transaction.set(walletRef, {
+      walletId: params.walletId,
+      name: params.walletId === 'cash' ? 'Cash Wallet' : params.walletId === 'bank' ? 'Bank Wallet' : 'Razorpay Settlement Wallet',
+      balance: newBalance,
+      updatedAt: todayISO(),
+    }, { merge: true })
+    
+    const ledgerDocRef = doc(ledgerColl)
+    const ledgerPayload = {
+      transactionId: ledgerDocRef.id,
+      walletId: params.walletId,
+      studentId: params.studentId || null,
+      studentName: params.studentName || null,
+      paymentId: params.paymentId || null,
+      expenseId: params.expenseId || null,
+      amount: params.amount,
+      type: params.type,
+      method: params.method || null,
+      source: params.source || null,
+      balanceAfter: newBalance,
+      createdBy: params.createdBy,
+      timestamp: new Date().toISOString(),
+      notes: params.notes || null,
+    }
+    transaction.set(ledgerDocRef, ledgerPayload)
+  })
+}
+
+export async function recordTransferActivity(params: {
+  fromWalletId: 'cash' | 'bank' | 'razorpay'
+  toWalletId: 'cash' | 'bank' | 'razorpay'
+  amount: number
+  type: string
+  createdBy: string
+  notes?: string | null
+}) {
+  const dbRef = db()
+  const fromRef = doc(dbRef, 'wallets', params.fromWalletId)
+  const toRef = doc(dbRef, 'wallets', params.toWalletId)
+  const ledgerColl = collection(dbRef, 'ledger')
+
+  await runTransaction(dbRef, async (transaction) => {
+    const fromSnap = await transaction.get(fromRef)
+    const toSnap = await transaction.get(toRef)
+
+    const fromBal = fromSnap.exists() ? fromSnap.data().balance || 0 : 0
+    const toBal = toSnap.exists() ? toSnap.data().balance || 0 : 0
+
+    const newFromBal = fromBal - params.amount
+    const newToBal = toBal + params.amount
+
+    transaction.set(fromRef, { balance: newFromBal, updatedAt: todayISO() }, { merge: true })
+    transaction.set(toRef, { balance: newToBal, updatedAt: todayISO() }, { merge: true })
+
+    const ledgerDocRef1 = doc(ledgerColl)
+    transaction.set(ledgerDocRef1, {
+      transactionId: ledgerDocRef1.id,
+      walletId: params.fromWalletId,
+      amount: -params.amount,
+      type: params.type,
+      method: 'Transfer',
+      source: `Transfer to ${params.toWalletId === 'cash' ? 'Cash' : params.toWalletId === 'bank' ? 'Bank' : 'Razorpay'}`,
+      balanceAfter: newFromBal,
+      createdBy: params.createdBy,
+      timestamp: new Date().toISOString(),
+      notes: params.notes || null,
+    })
+
+    const ledgerDocRef2 = doc(ledgerColl)
+    transaction.set(ledgerDocRef2, {
+      transactionId: ledgerDocRef2.id,
+      walletId: params.toWalletId,
+      amount: params.amount,
+      type: params.type,
+      method: 'Transfer',
+      source: `Transfer from ${params.fromWalletId === 'cash' ? 'Cash' : params.fromWalletId === 'bank' ? 'Bank' : 'Razorpay'}`,
+      balanceAfter: newToBal,
+      createdBy: params.createdBy,
+      timestamp: new Date().toISOString(),
+      notes: params.notes || null,
+    })
+  })
+}
+
+// --------------------------------------------------------------------------------------
+// FINANCE: DAILY CLOSING ENGINE
+// --------------------------------------------------------------------------------------
+
+export interface DailyClosing {
+  date: string // YYYY-MM-DD
+  openingBalance: number
+  collection: number
+  expenses: number
+  deposits: number
+  withdrawals: number
+  closingBalance: number
+  status: 'open' | 'closed'
+  closedBy: string | null
+  closedAt: string | null
+  notes: string | null
+}
+
+export interface DailyClosingLog {
+  logId: string
+  date: string // YYYY-MM-DD
+  user: string
+  action: 'close' | 'reopen' | 'manual_correction' | 'adjust'
+  timestamp: string
+  before: string
+  after: string
+  reason: string
+}
+
+export function subscribeDailyClosing(onChange: (data: DailyClosing[]) => void) {
+  const coll = collection(db(), 'daily_closing')
+  const q = query(coll, orderBy('date', 'desc'))
+  return onSnapshot(q, (snapshot) => {
+    const list: DailyClosing[] = []
+    snapshot.forEach(docSnap => list.push(docSnap.data() as DailyClosing))
+    onChange(list)
+  })
+}
+
+export function subscribeDailyClosingLogs(onChange: (data: DailyClosingLog[]) => void) {
+  const coll = collection(db(), 'daily_closing_logs')
+  const q = query(coll, orderBy('timestamp', 'desc'))
+  return onSnapshot(q, (snapshot) => {
+    const list: DailyClosingLog[] = []
+    snapshot.forEach(docSnap => list.push(docSnap.data() as DailyClosingLog))
+    onChange(list)
+  })
+}
+
+export async function checkIsDayClosed(date: string): Promise<boolean> {
+  const docRef = doc(db(), 'daily_closing', date)
+  const snap = await getDoc(docRef)
+  if (snap.exists()) {
+    return snap.data().status === 'closed'
+  }
+  return false
+}
+
+export async function saveDailyClosing(entry: DailyClosing) {
+  const docRef = doc(db(), 'daily_closing', entry.date)
+  await setDoc(docRef, entry, { merge: true })
+}
+
+export async function closeDailyDay(params: {
+  date: string
+  openingBalance: number
+  collection: number
+  expenses: number
+  deposits: number
+  withdrawals: number
+  closingBalance: number
+  closedBy: string
+  notes: string
+}) {
+  const dbRef = db()
+  const closingRef = doc(dbRef, 'daily_closing', params.date)
+  
+  await runTransaction(dbRef, async (transaction) => {
+    const snap = await transaction.get(closingRef)
+    if (snap.exists() && snap.data().status === 'closed') {
+      throw new Error('Day is already closed.')
+    }
+
+    const payload: DailyClosing = {
+      date: params.date,
+      openingBalance: params.openingBalance,
+      collection: params.collection,
+      expenses: params.expenses,
+      deposits: params.deposits,
+      withdrawals: params.withdrawals,
+      closingBalance: params.closingBalance,
+      status: 'closed',
+      closedBy: params.closedBy,
+      closedAt: new Date().toISOString(),
+      notes: params.notes || ''
+    }
+
+    transaction.set(closingRef, payload, { merge: true })
+
+    // Also write to audit log
+    const logRef = doc(collection(dbRef, 'daily_closing_logs'))
+    transaction.set(logRef, {
+      logId: logRef.id,
+      date: params.date,
+      user: params.closedBy,
+      action: 'close',
+      timestamp: new Date().toISOString(),
+      before: snap.exists() ? snap.data().status : 'none',
+      after: 'closed',
+      reason: params.notes || 'Closed Day'
+    } as DailyClosingLog)
+  })
+}
+
+export async function reopenDailyDay(params: {
+  date: string
+  reopenedBy: string
+  reason: string
+}) {
+  const dbRef = db()
+  const closingRef = doc(dbRef, 'daily_closing', params.date)
+
+  await runTransaction(dbRef, async (transaction) => {
+    const snap = await transaction.get(closingRef)
+    if (!snap.exists() || snap.data().status !== 'closed') {
+      throw new Error('Day is not currently closed.')
+    }
+
+    transaction.set(closingRef, {
+      status: 'open',
+      closedBy: null,
+      closedAt: null
+    }, { merge: true })
+
+    const logRef = doc(collection(dbRef, 'daily_closing_logs'))
+    transaction.set(logRef, {
+      logId: logRef.id,
+      date: params.date,
+      user: params.reopenedBy,
+      action: 'reopen',
+      timestamp: new Date().toISOString(),
+      before: 'closed',
+      after: 'open',
+      reason: params.reason
+    } as DailyClosingLog)
+  })
+}
+
+// --------------------------------------------------------------------------------------
+// FINANCE: CASH FLOW FORECAST ENGINE
+// --------------------------------------------------------------------------------------
+
+export interface PlannedIncome {
+  id: string
+  title: string
+  amount: number
+  date: string // YYYY-MM-DD
+  category: string
+  notes?: string
+  createdBy: string
+  createdAt: string
+}
+
+export interface PlannedExpense {
+  id: string
+  title: string
+  amount: number
+  date: string // YYYY-MM-DD
+  category: 'Salary' | 'Rent' | 'Electricity' | 'Internet' | 'Water' | 'Maintenance' | 'Software' | 'Other'
+  notes?: string
+  createdBy: string
+  createdAt: string
+}
+
+export function subscribePlannedIncome(onChange: (data: PlannedIncome[]) => void) {
+  const coll = collection(db(), 'planned_income')
+  const q = query(coll, orderBy('date', 'asc'))
+  return onSnapshot(q, (snapshot) => {
+    const list: PlannedIncome[] = []
+    snapshot.forEach(docSnap => list.push(docSnap.data() as PlannedIncome))
+    onChange(list)
+  })
+}
+
+export function subscribePlannedExpenses(onChange: (data: PlannedExpense[]) => void) {
+  const coll = collection(db(), 'planned_expenses')
+  const q = query(coll, orderBy('date', 'asc'))
+  return onSnapshot(q, (snapshot) => {
+    const list: PlannedExpense[] = []
+    snapshot.forEach(docSnap => list.push(docSnap.data() as PlannedExpense))
+    onChange(list)
+  })
+}
+
+export async function createPlannedIncome(input: Omit<PlannedIncome, 'id' | 'createdAt'>) {
+  const dbRef = db()
+  const ref = doc(collection(dbRef, 'planned_income'))
+  const payload: PlannedIncome = {
+    ...input,
+    id: ref.id,
+    createdAt: new Date().toISOString()
+  }
+  await setDoc(ref, payload)
+
+  // Write log entry
+  const logRef = doc(collection(dbRef, 'forecast_logs'))
+  await setDoc(logRef, {
+    logId: logRef.id,
+    user: input.createdBy,
+    action: 'create_planned_income',
+    timestamp: new Date().toISOString(),
+    details: `Created planned income: ${input.title} of amount ₹${input.amount} for date ${input.date}`
+  })
+}
+
+export async function createPlannedExpense(input: Omit<PlannedExpense, 'id' | 'createdAt'>) {
+  const dbRef = db()
+  const ref = doc(collection(dbRef, 'planned_expenses'))
+  const payload: PlannedExpense = {
+    ...input,
+    id: ref.id,
+    createdAt: new Date().toISOString()
+  }
+  await setDoc(ref, payload)
+
+  // Write log entry
+  const logRef = doc(collection(dbRef, 'forecast_logs'))
+  await setDoc(logRef, {
+    logId: logRef.id,
+    user: input.createdBy,
+    action: 'create_planned_expense',
+    timestamp: new Date().toISOString(),
+    details: `Created planned expense: ${input.title} of amount ₹${input.amount} for date ${input.date}`
+  })
+}
+
+export async function deletePlannedIncome(id: string, deletedBy: string) {
+  const dbRef = db()
+  const ref = doc(dbRef, 'planned_income', id)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return
+
+  const data = snap.data() as PlannedIncome
+  await deleteDoc(ref)
+
+  // Write log entry
+  const logRef = doc(collection(dbRef, 'forecast_logs'))
+  await setDoc(logRef, {
+    logId: logRef.id,
+    user: deletedBy,
+    action: 'delete_planned_income',
+    timestamp: new Date().toISOString(),
+    details: `Deleted planned income: ${data.title} of amount ₹${data.amount} for date ${data.date}`
+  })
+}
+
+export async function deletePlannedExpense(id: string, deletedBy: string) {
+  const dbRef = db()
+  const ref = doc(dbRef, 'planned_expenses', id)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return
+
+  const data = snap.data() as PlannedExpense
+  await deleteDoc(ref)
+
+  // Write log entry
+  const logRef = doc(collection(dbRef, 'forecast_logs'))
+  await setDoc(logRef, {
+    logId: logRef.id,
+    user: deletedBy,
+    action: 'delete_planned_expense',
+    timestamp: new Date().toISOString(),
+    details: `Deleted planned expense: ${data.title} of amount ₹${data.amount} for date ${data.date}`
+  })
+}
+
+// --------------------------------------------------------------------------------------
+// CRM: PARENT COMMUNICATION CENTER ENGINE
+// --------------------------------------------------------------------------------------
+
+export interface CommunicationTemplate {
+  templateId: string
+  title: string
+  category: 'fees' | 'homework' | 'exam' | 'holiday' | 'result' | 'admission' | 'birthday' | 'festival' | 'ptm' | 'emergency' | 'custom'
+  content: string
+  variables: string[]
+  channel: 'whatsapp' | 'email' | 'sms' | 'all'
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CommunicationHistory {
+  id: string
+  studentId: string
+  studentName: string
+  parentId: string
+  parentName: string
+  channel: 'whatsapp' | 'email' | 'sms'
+  templateId: string | null
+  message: string
+  status: 'sent' | 'failed' | 'scheduled'
+  attachments?: string[]
+  createdBy: string
+  createdAt: string
+  deliveryTime?: string
+}
+
+export interface AutomationRule {
+  id: string
+  trigger: 'fee_due_5d' | 'fee_overdue' | 'attendance_low' | 'homework_uploaded' | 'exam_scheduled' | 'birthday' | 'admission_complete' | 'payment_received'
+  condition: string
+  templateId: string
+  channel: 'whatsapp' | 'email' | 'sms'
+  enabled: boolean
+  createdAt: string
+}
+
+export interface ScheduledMessage {
+  id: string
+  recipientFilter: string
+  channel: 'whatsapp' | 'email' | 'sms'
+  templateId: string
+  message: string
+  sendAt: string // YYYY-MM-DD
+  status: 'pending' | 'sent' | 'failed'
+  createdBy: string
+  createdAt: string
+}
+
+export function subscribeCommunicationTemplates(onChange: (data: CommunicationTemplate[]) => void) {
+  const coll = collection(db(), 'communication_templates')
+  const q = query(coll, orderBy('title', 'asc'))
+  return onSnapshot(q, (snapshot) => {
+    const list: CommunicationTemplate[] = []
+    snapshot.forEach(docSnap => list.push(docSnap.data() as CommunicationTemplate))
+    onChange(list)
+  })
+}
+
+export function subscribeCommunicationHistory(onChange: (data: CommunicationHistory[]) => void) {
+  const coll = collection(db(), 'communication_history')
+  const q = query(coll, orderBy('createdAt', 'desc'))
+  return onSnapshot(q, (snapshot) => {
+    const list: CommunicationHistory[] = []
+    snapshot.forEach(docSnap => list.push(docSnap.data() as CommunicationHistory))
+    onChange(list)
+  })
+}
+
+export function subscribeScheduledMessages(onChange: (data: ScheduledMessage[]) => void) {
+  const coll = collection(db(), 'scheduled_messages')
+  const q = query(coll, orderBy('sendAt', 'asc'))
+  return onSnapshot(q, (snapshot) => {
+    const list: ScheduledMessage[] = []
+    snapshot.forEach(docSnap => list.push(docSnap.data() as ScheduledMessage))
+    onChange(list)
+  })
+}
+
+export function subscribeAutomationRules(onChange: (data: AutomationRule[]) => void) {
+  const coll = collection(db(), 'automation_rules')
+  const q = query(coll, orderBy('createdAt', 'desc'))
+  return onSnapshot(q, (snapshot) => {
+    const list: AutomationRule[] = []
+    snapshot.forEach(docSnap => list.push(docSnap.data() as AutomationRule))
+    onChange(list)
+  })
+}
+
+export async function createTemplate(input: Omit<CommunicationTemplate, 'templateId' | 'createdAt' | 'updatedAt'>) {
+  const dbRef = db()
+  const ref = doc(collection(dbRef, 'communication_templates'))
+  const payload: CommunicationTemplate = {
+    ...input,
+    templateId: ref.id,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+  await setDoc(ref, payload)
+}
+
+export async function deleteTemplate(id: string) {
+  const ref = doc(db(), 'communication_templates', id)
+  await deleteDoc(ref)
+}
+
+export async function saveCommunicationLog(log: Omit<CommunicationHistory, 'id' | 'createdAt'>) {
+  const dbRef = db()
+  const ref = doc(collection(dbRef, 'communication_history'))
+  const payload: CommunicationHistory = {
+    ...log,
+    id: ref.id,
+    createdAt: new Date().toISOString()
+  }
+  await setDoc(ref, payload)
+}
+
+export async function createScheduledMessage(input: Omit<ScheduledMessage, 'id' | 'createdAt'>) {
+  const dbRef = db()
+  const ref = doc(collection(dbRef, 'scheduled_messages'))
+  const payload: ScheduledMessage = {
+    ...input,
+    id: ref.id,
+    createdAt: new Date().toISOString()
+  }
+  await setDoc(ref, payload)
+}
+
+export async function deleteScheduledMessage(id: string) {
+  const ref = doc(db(), 'scheduled_messages', id)
+  await deleteDoc(ref)
+}
+
+export async function createAutomationRule(input: Omit<AutomationRule, 'id' | 'createdAt'>) {
+  const dbRef = db()
+  const ref = doc(collection(dbRef, 'automation_rules'))
+  const payload: AutomationRule = {
+    ...input,
+    id: ref.id,
+    createdAt: new Date().toISOString()
+  }
+  await setDoc(ref, payload)
+}
+
+export async function toggleAutomationRule(id: string, enabled: boolean) {
+  const ref = doc(db(), 'automation_rules', id)
+  await setDoc(ref, { enabled }, { merge: true })
+}
+
+export async function deleteAutomationRule(id: string) {
+  const ref = doc(db(), 'automation_rules', id)
+  await deleteDoc(ref)
 }

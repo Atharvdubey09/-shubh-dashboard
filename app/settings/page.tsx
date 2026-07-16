@@ -1,12 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { Card, PageHeader } from '@/components/ui-bits'
 import { useAppData } from '@/components/state/app-data-provider'
 import { useAuth } from '@/components/state/auth-provider'
 import { useToast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
+import { type HealthScoreWeights } from '@/lib/domain'
+import { DEFAULT_HEALTH_SCORE_WEIGHTS } from '@/lib/firestore'
 
 function Toggle({
   label,
@@ -66,6 +68,63 @@ export default function SettingsPage() {
   const { userRole } = useAuth()
   const { toast } = useToast()
   const [form, setForm] = useState(settings)
+
+  const [weights, setWeights] = useState<HealthScoreWeights | null>(null)
+
+  useEffect(() => {
+    if (settings.healthScoreWeights) {
+      setWeights(settings.healthScoreWeights)
+    }
+  }, [settings])
+
+  const totalWeight = useMemo(() => {
+    if (!weights) return 0
+    return (
+      weights.feeCollection +
+      weights.pendingFees +
+      weights.attendance +
+      weights.teacherProductivity +
+      weights.syllabusCompletion +
+      weights.profitMargin +
+      weights.expenseRatio +
+      weights.admissionGrowth +
+      weights.studentRetention +
+      weights.examPerformance
+    )
+  }, [weights])
+
+  const handleWeightChange = (key: keyof HealthScoreWeights, val: number) => {
+    if (!weights) return
+    setWeights({
+      ...weights,
+      [key]: Math.max(0, val)
+    })
+  }
+
+  const handleResetWeights = () => {
+    setWeights(DEFAULT_HEALTH_SCORE_WEIGHTS)
+  }
+
+  async function handleSaveWeights() {
+    if (!weights || totalWeight !== 100) return
+    try {
+      await persistSettings({
+        ...settings,
+        healthScoreWeights: weights
+      })
+      toast({
+        title: 'Weights saved',
+        description: 'Business Health Score weights have been updated successfully.',
+        tone: 'success',
+      })
+    } catch (err) {
+      toast({
+        title: 'Save failed',
+        description: err instanceof Error ? err.message : 'Please try again.',
+        tone: 'error',
+      })
+    }
+  }
 
   const [gateway, setGateway] = useState<{
     isConnected: boolean
@@ -231,101 +290,180 @@ export default function SettingsPage() {
 
       {/* Admin Actions */}
       {(userRole === 'Owner' || userRole === 'Admin') && (
-        <div className="mt-5 grid gap-5 lg:grid-cols-3 animate-fade-up [animation-delay:180ms]">
-          {userRole === 'Owner' && (
+        <div className="space-y-6 mt-5">
+          <div className="grid gap-5 lg:grid-cols-3 animate-fade-up [animation-delay:180ms]">
+            {userRole === 'Owner' && (
+              <Card className="p-6 flex flex-col justify-between">
+                <div>
+                  <p className="micro-label mb-1">Security</p>
+                  <h2 className="text-base font-semibold tracking-tight mb-2">User Access Control</h2>
+                  <p className="text-xs text-muted-foreground leading-relaxed text-pretty">
+                    Control who has access to the Coaching ERP. Invite new staff, update roles, or suspend access.
+                  </p>
+                </div>
+                <Link
+                  href="/settings/users"
+                  className="mt-6 h-10 inline-flex items-center justify-center rounded-xl bg-primary text-xs font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+                >
+                  Manage Staff Users
+                </Link>
+              </Card>
+            )}
+
             <Card className="p-6 flex flex-col justify-between">
               <div>
-                <p className="micro-label mb-1">Security</p>
-                <h2 className="text-base font-semibold tracking-tight mb-2">User Access Control</h2>
+                <p className="micro-label mb-1">Archived</p>
+                <h2 className="text-base font-semibold tracking-tight mb-2">Deleted Students Directory</h2>
                 <p className="text-xs text-muted-foreground leading-relaxed text-pretty">
-                  Control who has access to the Coaching ERP. Invite new staff, update roles, or suspend access.
+                  Browse student profiles that have been deleted. You can restore them and all their linkages at any time.
                 </p>
               </div>
               <Link
-                href="/settings/users"
-                className="mt-6 h-10 inline-flex items-center justify-center rounded-xl bg-primary text-xs font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+                href="/settings/deleted-students"
+                className="mt-6 h-10 inline-flex items-center justify-center rounded-xl border border-border bg-card text-xs font-semibold hover:bg-muted transition-colors"
               >
-                Manage Staff Users
+                View Deleted Registry
               </Link>
             </Card>
-          )}
 
-          <Card className="p-6 flex flex-col justify-between">
-            <div>
-              <p className="micro-label mb-1">Archived</p>
-              <h2 className="text-base font-semibold tracking-tight mb-2">Deleted Students Directory</h2>
-              <p className="text-xs text-muted-foreground leading-relaxed text-pretty">
-                Browse student profiles that have been deleted. You can restore them and all their linkages at any time.
-              </p>
-            </div>
-            <Link
-              href="/settings/deleted-students"
-              className="mt-6 h-10 inline-flex items-center justify-center rounded-xl border border-border bg-card text-xs font-semibold hover:bg-muted transition-colors"
-            >
-              View Deleted Registry
-            </Link>
-          </Card>
-
-          <Card className="p-6 flex flex-col justify-between border-l-4 border-l-indigo-600 bg-card">
-            <div>
-              <p className="micro-label mb-1">Payment Integration</p>
-              <h2 className="text-base font-semibold tracking-tight mb-4">Payment Gateway</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block">
-                    <span className="micro-label mb-1.5 block">Razorpay Key ID</span>
-                    <input
-                      className={cn(inputCls, "bg-muted/30 cursor-not-allowed text-xs font-mono")}
-                      value={gateway?.keyId || 'Not Configured'}
-                      readOnly
-                      disabled
-                    />
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="rounded-xl border border-border p-3">
-                    <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Connection</span>
-                    {gateway?.isConnected ? (
-                      <span className="font-bold text-success">Connected</span>
-                    ) : (
-                      <span className="font-bold text-destructive">Disconnected</span>
-                    )}
+            <Card className="p-6 flex flex-col justify-between border-l-4 border-l-indigo-600 bg-card">
+              <div>
+                <p className="micro-label mb-1">Payment Integration</p>
+                <h2 className="text-base font-semibold tracking-tight mb-4">Payment Gateway</h2>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block">
+                      <span className="micro-label mb-1.5 block">Razorpay Key ID</span>
+                      <input
+                        className={cn(inputCls, "bg-muted/30 cursor-not-allowed text-xs font-mono")}
+                        value={gateway?.keyId || 'Not Configured'}
+                        readOnly
+                        disabled
+                      />
+                    </label>
                   </div>
 
-                  <div className="rounded-xl border border-border p-3">
-                    <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Webhook</span>
-                    {gateway?.isWebhookConfigured ? (
-                      <span className="font-bold text-success">Active</span>
-                    ) : (
-                      <span className="font-bold text-destructive">Inactive</span>
-                    )}
-                  </div>
-                </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="rounded-xl border border-border p-3">
+                      <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Connection</span>
+                      {gateway?.isConnected ? (
+                        <span className="font-bold text-success">Connected</span>
+                      ) : (
+                        <span className="font-bold text-destructive">Disconnected</span>
+                      )}
+                    </div>
 
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="rounded-xl border border-border p-3">
-                    <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Environment</span>
-                    <span className={cn(
-                      'font-bold',
-                      gateway?.mode === 'Live Mode' ? 'text-emerald-500' : gateway?.mode === 'Test Mode' ? 'text-amber-500' : 'text-muted-foreground'
-                    )}>
-                      {gateway?.mode || 'None'}
-                    </span>
+                    <div className="rounded-xl border border-border p-3">
+                      <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Webhook</span>
+                      {gateway?.isWebhookConfigured ? (
+                        <span className="font-bold text-success">Active</span>
+                      ) : (
+                        <span className="font-bold text-destructive">Inactive</span>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="rounded-xl border border-border p-3">
-                    <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Web Health</span>
-                    <span className="font-bold text-foreground">{gateway?.lastSyncStatus || '—'}</span>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="rounded-xl border border-border p-3">
+                      <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Environment</span>
+                      <span className={cn(
+                        'font-bold',
+                        gateway?.mode === 'Live Mode' ? 'text-emerald-500' : gateway?.mode === 'Test Mode' ? 'text-amber-500' : 'text-muted-foreground'
+                      )}>
+                        {gateway?.mode || 'None'}
+                      </span>
+                    </div>
+
+                    <div className="rounded-xl border border-border p-3">
+                      <span className="text-muted-foreground block text-[10px] uppercase font-semibold mb-1">Web Health</span>
+                      <span className="font-bold text-foreground">{gateway?.lastSyncStatus || '—'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-            
-            <div className="mt-4 rounded-xl bg-accent p-3 text-[10px] leading-relaxed text-accent-foreground">
-              👉 Configure <code className="font-mono bg-card/60 px-1 py-0.5 rounded">RAZORPAY_KEY_ID</code> and <code className="font-mono bg-card/60 px-1 py-0.5 rounded">RAZORPAY_KEY_SECRET</code> in environment to connect.
-            </div>
+              
+              <div className="mt-4 rounded-xl bg-accent p-3 text-[10px] leading-relaxed text-accent-foreground">
+                👉 Configure <code className="font-mono bg-card/60 px-1 py-0.5 rounded">RAZORPAY_KEY_ID</code> and <code className="font-mono bg-card/60 px-1 py-0.5 rounded">RAZORPAY_KEY_SECRET</code> in environment to connect.
+              </div>
+            </Card>
+          </div>
+
+          <Card className="p-6 animate-fade-up [animation-delay:220ms] border border-border">
+            <p className="micro-label mb-1">Configuration</p>
+            <h2 className="text-base font-semibold tracking-tight mb-2">Business Health Score Weights</h2>
+            <p className="text-xs text-muted-foreground leading-relaxed text-pretty mb-6">
+              Customize the percentage weight of each metric used to compute the Business Health Score. The total must equal exactly 100%.
+            </p>
+            {weights && (
+              <div className="flex flex-col gap-6">
+                <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
+                  {[
+                    { label: 'Fee Collection', key: 'feeCollection' },
+                    { label: 'Pending Fees', key: 'pendingFees' },
+                    { label: 'Attendance', key: 'attendance' },
+                    { label: 'Teacher Productivity', key: 'teacherProductivity' },
+                    { label: 'Syllabus Completion', key: 'syllabusCompletion' },
+                    { label: 'Profit Margin', key: 'profitMargin' },
+                    { label: 'Expense Ratio', key: 'expenseRatio' },
+                    { label: 'Admission Growth', key: 'admissionGrowth' },
+                    { label: 'Student Retention', key: 'studentRetention' },
+                    { label: 'Exam Performance', key: 'examPerformance' },
+                  ].map((metric) => (
+                    <label key={metric.key} className="block">
+                      <span className="micro-label mb-1.5 block">{metric.label} (%)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        className={inputCls}
+                        value={weights[metric.key as keyof HealthScoreWeights]}
+                        onChange={(e) => handleWeightChange(metric.key as keyof HealthScoreWeights, Number(e.target.value) || 0)}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-border">
+                  <div className="flex items-center gap-3">
+                    <span className={cn(
+                      'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border',
+                      totalWeight === 100 
+                        ? 'bg-success/10 border-success/20 text-success' 
+                        : 'bg-destructive/10 border-destructive/20 text-destructive'
+                    )}>
+                      {totalWeight === 100 ? '✓' : '⚠'} Total Weight: {totalWeight}%
+                    </span>
+                    {totalWeight !== 100 && (
+                      <span className="text-xs text-muted-foreground">Weights must add up to exactly 100% (currently off by {100 - totalWeight}%).</span>
+                    )}
+                  </div>
+                  
+                  <div className="flex gap-2.5 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={handleResetWeights}
+                      className="flex-1 sm:flex-initial h-10 px-4 rounded-xl border border-border bg-card text-xs font-semibold hover:bg-muted transition-colors"
+                    >
+                      Reset to Defaults
+                    </button>
+                    <button
+                      type="button"
+                      disabled={totalWeight !== 100}
+                      onClick={handleSaveWeights}
+                      className={cn(
+                        'flex-1 sm:flex-initial h-10 px-6 rounded-xl text-xs font-bold transition-all',
+                        totalWeight === 100 
+                          ? 'bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-sm' 
+                          : 'bg-muted text-muted-foreground cursor-not-allowed'
+                      )}
+                    >
+                      Save weights
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </Card>
         </div>
       )}

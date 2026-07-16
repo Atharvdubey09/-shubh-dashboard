@@ -132,6 +132,7 @@ const defaultExpenseForm = {
   customDuration: '',
   startMonth: String(new Date().getMonth() + 1),
   startYear: String(new Date().getFullYear()),
+  paymentMode: 'Bank Transfer' as 'Cash' | 'UPI' | 'Bank Transfer',
 }
 
 type FeeFormState = typeof defaultFeeForm
@@ -145,6 +146,7 @@ type ExpenseFormState = {
   customDuration: string
   startMonth: string
   startYear: string
+  paymentMode: 'Cash' | 'UPI' | 'Bank Transfer'
 }
 
 export function QuickAdd() {
@@ -282,6 +284,7 @@ export function QuickAdd() {
               customDuration: '',
               startMonth: String(matchedExpense.startMonth || (new Date(matchedExpense.date).getMonth() + 1)),
               startYear: String(matchedExpense.startYear || new Date(matchedExpense.date).getFullYear()),
+              paymentMode: matchedExpense.paymentMode || 'Bank Transfer',
             }
           : defaultExpenseForm,
       )
@@ -538,6 +541,7 @@ export function QuickAdd() {
           durationMonths: isRec ? dur : undefined,
           startMonth: isRec ? Number(expenseForm.startMonth) : undefined,
           startYear: isRec ? Number(expenseForm.startYear) : undefined,
+          paymentMode: expenseForm.paymentMode,
         }
 
         if (expenseId) {
@@ -1086,6 +1090,22 @@ export function QuickAdd() {
                   {EXPENSE_CATEGORIES.map((category) => (
                     <option key={category}>{category}</option>
                   ))}
+                </select>
+              </Field>
+              <Field label="Payment Mode">
+                <select
+                  className={inputCls}
+                  value={expenseForm.paymentMode}
+                  onChange={(e) =>
+                    setExpenseForm((current) => ({
+                      ...current,
+                      paymentMode: e.target.value as 'Cash' | 'UPI' | 'Bank Transfer',
+                    }))
+                  }
+                >
+                  <option value="Cash">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="Bank Transfer">Bank Transfer</option>
                 </select>
               </Field>
               <Field label="Expense Type">

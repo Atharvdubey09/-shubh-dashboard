@@ -28,7 +28,7 @@ import { useQuickAdd } from '@/components/shell/quick-add-context'
 import { useToast } from '@/components/ui/toast'
 import { formatINR, formatLongDate, type PaymentStatus } from '@/lib/domain'
 import { cn } from '@/lib/utils'
-import { subscribeStudentHistory } from '@/lib/firestore'
+import { subscribeStudentHistory, subscribeCommunicationHistory, CommunicationHistory } from '@/lib/firestore'
 function getEventDetails(event: any) {
   switch (event.eventType) {
     case 'student_created':
@@ -147,7 +147,15 @@ export default function StudentProfilePage() {
   const [razorpayError, setRazorpayError] = useState('')
   const [timelineHistory, setTimelineHistory] = useState<any[]>([])
   const [historyLoading, setHistoryLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'timeline' | 'schedule' | 'payments'>('timeline')
+  const [activeTab, setActiveTab] = useState<'timeline' | 'schedule' | 'payments' | 'communication'>('timeline')
+  const [commHistory, setCommHistory] = useState<CommunicationHistory[]>([])
+  useEffect(() => {
+    const unsub = subscribeCommunicationHistory((data) => {
+      const studentLogs = data.filter((log) => log.studentId === params.id)
+      setCommHistory(studentLogs)
+    })
+    return () => unsub()
+  }, [params.id])
   async function handleLinkExistingSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!student || !selectedFamilyId) return
@@ -714,6 +722,15 @@ export default function StudentProfilePage() {
             >
               Fee Schedule
             </button>
+            <button
+              onClick={() => setActiveTab('communication')}
+              className={cn(
+                "pb-2.5 text-xs font-semibold px-4 transition-colors border-b-2 -mb-[1px] cursor-pointer",
+                activeTab === 'communication' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Communication History ({commHistory.length})
+            </button>
           </div>
 
           {activeTab === 'timeline' && (
@@ -836,6 +853,48 @@ export default function StudentProfilePage() {
                 </li>
               ))}
             </ol>
+          )}
+
+          {activeTab === 'communication' && (
+            <div className="space-y-6 animate-fade-up">
+              {commHistory.length === 0 ? (
+                <div className="py-12 text-center text-xs text-muted-foreground border border-dashed border-border/85 rounded-2xl bg-muted/5">
+                  No communication history logged for this student.
+                </div>
+              ) : (
+                <ol className="relative ml-2 flex flex-col gap-6 border-l border-border pl-6">
+                  {commHistory.map((log) => (
+                    <li key={log.id} className="relative">
+                      <span className="absolute -left-[31px] top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500 text-white text-[9px] font-bold ring-4 ring-indigo-500/15">
+                        {log.channel === 'whatsapp' ? 'WA' : log.channel === 'email' ? 'EM' : 'SM'}
+                      </span>
+                      <div className="bg-card border border-border/60 p-4 rounded-2xl shadow-sm space-y-2">
+                        <div className="flex justify-between items-center text-[10px]">
+                          <span className="font-extrabold text-foreground uppercase tracking-wide">
+                            {log.channel} Message
+                          </span>
+                          <span className="text-muted-foreground font-mono">
+                            {new Date(log.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                          </span>
+                        </div>
+                        <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">
+                          {log.message}
+                        </p>
+                        <div className="flex justify-between items-center text-[9px] pt-1.5 border-t border-border/30 text-muted-foreground font-medium">
+                          <span>Sent By: {log.createdBy}</span>
+                          <span className={cn(
+                            "font-bold uppercase",
+                            log.status === 'sent' ? 'text-emerald-500' : 'text-red-500'
+                          )}>
+                            {log.status}
+                          </span>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
           )}
         </Card>
       </div>

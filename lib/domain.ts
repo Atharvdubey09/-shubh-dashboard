@@ -102,6 +102,7 @@ export interface Expense {
   startYear?: number
   startDate?: string
   endDate?: string
+  paymentMode?: 'Cash' | 'UPI' | 'Bank Transfer'
 }
 
 export interface Family {
@@ -166,6 +167,19 @@ export interface TeacherProfile {
   updatedAt: string
 }
 
+export interface HealthScoreWeights {
+  feeCollection: number
+  attendance: number
+  pendingFees: number
+  teacherProductivity: number
+  syllabusCompletion: number
+  profitMargin: number
+  expenseRatio: number
+  admissionGrowth: number
+  studentRetention: number
+  examPerformance: number
+}
+
 export interface AppSettings {
   coachingName: string
   ownerName: string
@@ -178,6 +192,16 @@ export interface AppSettings {
     rentAndSalary: boolean
     utilities: boolean
   }
+  healthScoreWeights?: HealthScoreWeights
+}
+
+export interface HealthHistoryEntry {
+  date: string
+  score: number
+  breakdown: Record<string, number>
+  recommendations: string[]
+  insights: string[]
+  timestamp: string
 }
 
 export interface TaskItem {

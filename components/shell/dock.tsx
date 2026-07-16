@@ -13,6 +13,10 @@ import {
   Users,
   BookOpen,
   History,
+  Coins,
+  ClipboardCheck,
+  TrendingUp,
+  MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -23,6 +27,10 @@ const items = [
   { href: '/fees', label: 'Fees', icon: CreditCard },
   { href: '/expenses', label: 'Expenses', icon: Wallet },
   { href: '/transactions', label: 'Transaction History', icon: History },
+  { href: '/finance', label: 'Finance', icon: Coins },
+  { href: '/finance/closing', label: 'Daily Closing', icon: ClipboardCheck },
+  { href: '/finance/forecast', label: 'Cash Forecast', icon: TrendingUp },
+  { href: '/communication', label: 'Communication', icon: MessageSquare },
   { href: '/academics', label: 'Academics', icon: BookOpen },
   { href: '/reports', label: 'Reports', icon: BarChart3 },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
@@ -46,12 +54,12 @@ export function Dock() {
     }
 
     if (userRole === 'Receptionist') {
-      if (item.href === '/expenses' || item.href === '/reports') return false
+      if (item.href === '/expenses' || item.href === '/reports' || item.href === '/finance' || item.href === '/finance/closing' || item.href === '/finance/forecast' || item.href === '/communication') return false
       return true
     }
 
     if (userRole === 'Teacher') {
-      if (['/fees', '/expenses', '/reports', '/families', '/settings', '/transactions'].includes(item.href)) return false
+      if (['/fees', '/expenses', '/reports', '/families', '/settings', '/transactions', '/finance', '/finance/closing', '/finance/forecast'].includes(item.href)) return false
       return true
     }
 
