@@ -304,8 +304,8 @@ export function QuickAdd() {
   }, [closeQuickAdd, open])
 
   const matchingStudents = useMemo(() => {
-    const q = studentQuery.trim().toLowerCase()
-    if (!q) return students.slice(0, 5)
+    const q = feeForm.studentQuery.trim().toLowerCase()
+    if (!q) return students.slice(0, 100)
     return students
       .filter((student) =>
         [student.name, student.batch, student.parentPhone, String(student.class), student.paymentType]
@@ -313,8 +313,8 @@ export function QuickAdd() {
           .toLowerCase()
           .includes(q),
       )
-      .slice(0, 5)
-  }, [studentQuery, students])
+      .slice(0, 100)
+  }, [feeForm.studentQuery, students])
 
   const splitInstallmentTotal = useMemo(
     () => studentForm.installments.reduce((sum, item) => sum + Number(item.amount || 0), 0),
@@ -960,10 +960,16 @@ export function QuickAdd() {
                     const next = e.target.value
                     setFeeForm((current) => ({ ...current, studentQuery: next, studentId: '' }))
                   }}
+                  onFocus={() => {
+                    setFeeForm((current) => ({ ...current, studentId: '' }))
+                  }}
+                  onClick={() => {
+                    setFeeForm((current) => ({ ...current, studentId: '' }))
+                  }}
                   placeholder="Search student…"
                 />
               </Field>
-              {feeForm.studentQuery.trim() && (
+              {!feeForm.studentId && students.length > 0 && (
                 <div className="rounded-2xl border border-border bg-popover p-1 shadow-[0_12px_30px_rgb(0,0,0,0.08)]">
                   {matchingStudents.length === 0 ? (
                     <p className="px-3 py-3 text-xs text-muted-foreground">No student found.</p>
