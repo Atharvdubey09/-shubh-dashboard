@@ -76,8 +76,6 @@ function ShellGate({ children }: { children: React.ReactNode }) {
       if (pathname.startsWith('/expenses')) return false
       if (pathname.startsWith('/reports')) return false
       if (pathname.startsWith('/settings/users')) return false
-      if (pathname.startsWith('/finance')) return false
-      if (pathname.startsWith('/communication')) return false
       return true
     }
 
@@ -88,7 +86,6 @@ function ShellGate({ children }: { children: React.ReactNode }) {
       if (pathname.startsWith('/families')) return false
       if (pathname.startsWith('/settings')) return false
       if (pathname.startsWith('/transactions')) return false
-      if (pathname.startsWith('/finance')) return false
       return true
     }
 
