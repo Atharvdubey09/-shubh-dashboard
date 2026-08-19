@@ -2,7 +2,6 @@ import { getApps, initializeApp, cert } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 import { NextRequest } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 
 export function getFirebaseAdminApp() {
   const activeApps = getApps()
@@ -127,10 +126,6 @@ export function getAdminAuth() {
   return getAuth(app)
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
 export async function verifySessionAndGetRole(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -143,22 +138,23 @@ export async function verifySessionAndGetRole(req: NextRequest) {
   }
 
   try {
-    const { data: { user }, error } = await supabase.auth.getUser(token)
-    if (error || !user || !user.email) {
-      return { error: error?.message || 'Unauthorized session token', status: 401 }
+    const authClient = getAdminAuth()
+    const decodedToken = await authClient.verifyIdToken(token)
+    if (!decodedToken.email) {
+      return { error: 'Token does not contain email', status: 401 }
     }
 
     const db = getAdminDb()
-    const emailLower = user.email.toLowerCase().trim()
+    const emailLower = decodedToken.email.toLowerCase().trim()
     const userSnap = await db.collection('users').doc(emailLower).get()
 
     if (!userSnap.exists) {
       // Check if this is the auto-created Owner email
       if (emailLower === 'itatharvdubey@gmail.com') {
         return {
-          uid: user.id,
+          uid: decodedToken.uid,
           email: emailLower,
-          name: user.user_metadata?.full_name || 'Owner',
+          name: decodedToken.name || 'Owner',
           role: 'Owner',
           status: 'Active',
         }
@@ -177,15 +173,15 @@ export async function verifySessionAndGetRole(req: NextRequest) {
     }
 
     return {
-      uid: user.id,
+      uid: decodedToken.uid,
       email: emailLower,
-      name: userData.name || user.user_metadata?.full_name || 'User',
+      name: userData.name || decodedToken.name || 'User',
       role: userData.role,
       status: userData.status || 'Active',
     }
   } catch (err: any) {
     console.error('[verifySessionAndGetRole Error]:', err)
-    return { error: err.message || 'Invalid or expired Supabase Auth token', status: 401 }
+    return { error: err.message || 'Invalid or expired Firebase Auth ID token', status: 401 }
   }
 }
 

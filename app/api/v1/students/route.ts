@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb, verifySessionAndGetRole } from '@/lib/firebase-admin'
 
+export const runtime = 'nodejs'
+
 const DEFAULT_PAGE_SIZE = 50
 const MAX_PAGE_SIZE = 100
 
@@ -20,7 +22,8 @@ export async function GET(req: NextRequest) {
 
     // 2. Parse & Validate Query Parameters
     const { searchParams } = req.nextUrl
-    const pageSizeParam = parseInt(searchParams.get('pageSize') || String(DEFAULT_PAGE_SIZE), 10)
+    const limitQuery = searchParams.get('limit') || searchParams.get('pageSize')
+    const pageSizeParam = parseInt(limitQuery || String(DEFAULT_PAGE_SIZE), 10)
     const pageSize = Math.max(1, Math.min(pageSizeParam || DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE))
     const nextCursor = searchParams.get('nextCursor') || null
 
