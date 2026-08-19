@@ -1,5 +1,7 @@
 import { getApps, initializeApp, cert } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
+import { getAuth } from 'firebase-admin/auth'
+import { NextRequest } from 'next/server'
 
 export function getFirebaseAdminApp() {
   const activeApps = getApps()
@@ -117,6 +119,70 @@ export function getFirebaseAdminApp() {
 export function getAdminDb() {
   const app = getFirebaseAdminApp()
   return getFirestore(app)
+}
+
+export function getAdminAuth() {
+  const app = getFirebaseAdminApp()
+  return getAuth(app)
+}
+
+export async function verifySessionAndGetRole(req: NextRequest) {
+  const authHeader = req.headers.get('authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { error: 'Missing or malformed Authorization header', status: 401 }
+  }
+
+  const token = authHeader.substring(7).trim()
+  if (!token) {
+    return { error: 'Empty token', status: 401 }
+  }
+
+  try {
+    const authClient = getAdminAuth()
+    const decodedToken = await authClient.verifyIdToken(token)
+    if (!decodedToken.email) {
+      return { error: 'Token does not contain email', status: 401 }
+    }
+
+    const db = getAdminDb()
+    const emailLower = decodedToken.email.toLowerCase().trim()
+    const userSnap = await db.collection('users').doc(emailLower).get()
+
+    if (!userSnap.exists) {
+      // Check if this is the auto-created Owner email
+      if (emailLower === 'itatharvdubey@gmail.com') {
+        return {
+          uid: decodedToken.uid,
+          email: emailLower,
+          name: decodedToken.name || 'Owner',
+          role: 'Owner',
+          status: 'Active',
+        }
+      }
+      return { error: 'User is not registered in the application database', status: 403 }
+    }
+
+    const userData = userSnap.data()!
+    if (userData.status === 'Disabled') {
+      return { error: 'Your account is disabled. Please contact the owner.', status: 403 }
+    }
+
+    const validRoles = ['Owner', 'Admin', 'Teacher', 'Receptionist', 'Accountant']
+    if (!userData.role || !validRoles.includes(userData.role)) {
+      return { error: 'Unknown or invalid application role', status: 403 }
+    }
+
+    return {
+      uid: decodedToken.uid,
+      email: emailLower,
+      name: userData.name || decodedToken.name || 'User',
+      role: userData.role,
+      status: userData.status || 'Active',
+    }
+  } catch (err: any) {
+    console.error('[verifySessionAndGetRole Error]:', err)
+    return { error: err.message || 'Invalid or expired Firebase Auth ID token', status: 401 }
+  }
 }
 
 export async function writeStudentHistoryAdmin(db: any, params: {

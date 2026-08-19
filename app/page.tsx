@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { subscribeWallets, Wallet } from '@/lib/firestore'
 
 import { useAuth } from '@/components/state/auth-provider'
+import { getFirebaseAuth } from '@/lib/firebase'
 
 function relativeDay(iso: string) {
   const d = new Date(`${iso}T00:00:00`)
@@ -44,6 +45,33 @@ export default function DashboardPage() {
   const [unlockOpen, setUnlockOpen] = useState(false)
   const [unlockPassword, setUnlockPassword] = useState('')
   const [unlockError, setUnlockError] = useState<string | null>(null)
+
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
+  const [formatStatus, setFormatStatus] = useState<string | null>(null)
+
+  async function handleCopyToken() {
+    const auth = getFirebaseAuth()
+    const currentUser = auth.currentUser || user
+    if (!currentUser) {
+      setCopyStatus('No authenticated user found')
+      return
+    }
+
+    try {
+      const token = await currentUser.getIdToken(true)
+      await navigator.clipboard.writeText(token)
+      setCopyStatus('Firebase ID token copied')
+      
+      const segments = token.split('.')
+      if (segments.length === 3) {
+        setFormatStatus('Token format: valid JWT')
+      } else {
+        setFormatStatus('Token format: invalid segment count')
+      }
+    } catch (err: any) {
+      setCopyStatus(`Failed to copy token: ${err.message || err}`)
+    }
+  }
 
   // Wallet Summary State
   const showWalletSummary = userRole === 'Owner' || userRole === 'Admin' || userRole === 'Accountant'
@@ -329,6 +357,42 @@ export default function DashboardPage() {
         </h1>
         <p className="text-muted-foreground mt-2">Here is what's happening at {settings.coachingName} today.</p>
       </div>
+
+      {/* Temporary Firebase ID Token Copy Tool */}
+      <Card className="p-5 border border-border bg-card/60 shadow-sm animate-fade-up max-w-xl">
+        <p className="text-[10px] font-extrabold text-indigo-500 uppercase tracking-wider mb-2">
+          🛠️ Developer Authentication Helper
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs mb-4">
+          <div>
+            <span className="text-muted-foreground block text-[9px] uppercase font-bold">Authenticated Email</span>
+            <span className="font-medium text-foreground">{user?.email || 'N/A'}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block text-[9px] uppercase font-bold">Firebase UID</span>
+            <span className="font-mono font-medium text-foreground">{user?.uid || 'N/A'}</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleCopyToken}
+            className="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-all"
+          >
+            Copy Firebase ID Token
+          </button>
+          {copyStatus && (
+            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              {copyStatus}
+            </span>
+          )}
+          {formatStatus && (
+            <span className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/20 px-2.5 py-0.5 rounded-full">
+              {formatStatus}
+            </span>
+          )}
+        </div>
+      </Card>
 
       {/* Internal Wallet Summary */}
       {showWalletSummary && (
