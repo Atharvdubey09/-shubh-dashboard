@@ -230,12 +230,7 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error('[API Error] GET /api/v1/students exception caught:', error)
     return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Unable to load students', 
-        debugError: error.message || String(error), 
-        debugStack: error.stack || '' 
-      },
+      { success: false, error: 'Unable to load students' },
       { status: 500 }
     )
   }
