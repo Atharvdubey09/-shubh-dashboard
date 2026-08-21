@@ -235,3 +235,163 @@ export async function GET(req: NextRequest) {
     )
   }
 }
+
+export async function POST(req: NextRequest) {
+  try {
+    console.log('[API Access] POST /api/v1/students - Request received')
+
+    // 1. Authenticate & Resolve Role
+    const session = await verifySessionAndGetRole(req)
+    if ('error' in session) {
+      console.warn(`[API Access] Authentication failed: ${session.error}`)
+      return NextResponse.json(
+        { success: false, error: session.error },
+        { status: session.status || 401 }
+      )
+    }
+
+    const { email, role } = session
+    console.log(`[API Access] Authenticated user email: ${email}, resolved role: ${role}`)
+
+    // 2. Role Authorization (Owner, Admin, Teacher, Receptionist allowed)
+    const allowedRoles = ['Owner', 'Admin', 'Teacher', 'Receptionist']
+    if (!allowedRoles.includes(role)) {
+      console.warn(`[API Access] User ${email} with role ${role} denied access to create student`)
+      return NextResponse.json(
+        { success: false, error: 'Access denied' },
+        { status: 403 }
+      )
+    }
+
+    // 3. Parse Body
+    const body = await req.json()
+    const name = (body.name || '').trim()
+    const classNum = typeof body.class === 'number' ? body.class : parseInt(String(body.class || '0'), 10)
+    const batch = (body.batch || '').trim()
+    const parentPhone = (body.parentPhone || body.parent_phone || '').trim()
+    const parentName = (body.parentName || body.parent_name || '').trim()
+    const studentPhone = (body.studentPhone || body.student_phone || '').trim()
+    const whatsapp = (body.whatsapp || '').trim()
+    const address = (body.address || '').trim()
+    const notes = (body.notes || '').trim()
+    const joined = (body.joined || body.admission_date || body.admissionDate || new Date().toISOString().slice(0, 10)).slice(0, 10)
+    const status = body.status === 'inactive' ? 'inactive' : 'active'
+    const photoUrl = body.photoUrl || null
+
+    // Validation
+    if (!name) {
+      return NextResponse.json({ success: false, error: 'Student name is required' }, { status: 400 })
+    }
+    if (!classNum || classNum < 1 || isNaN(classNum)) {
+      return NextResponse.json({ success: false, error: 'Valid class standard is required (e.g. 1-10)' }, { status: 400 })
+    }
+    if (!batch) {
+      return NextResponse.json({ success: false, error: 'Batch is required' }, { status: 400 })
+    }
+
+    // 4. Financial Calculations
+    let totalFee = 0
+    let paid = 0
+    let pending = 0
+    let paymentType = 'Monthly'
+    let feePlan: any = null
+    let feeSchedule: any[] = []
+    let monthlyFee: number | null = null
+    let dueDay: number | null = null
+
+    // Teacher cannot set financial fields
+    if (role !== 'Teacher') {
+      totalFee = typeof body.totalFee === 'number' && body.totalFee >= 0
+        ? body.totalFee
+        : (18000 + classNum * 1200)
+      paymentType = body.paymentType || 'Monthly'
+      paid = typeof body.paid === 'number' ? body.paid : 0
+      pending = Math.max(totalFee - paid, 0)
+      monthlyFee = typeof body.monthlyFee === 'number' ? body.monthlyFee : Math.round(totalFee / 12)
+      dueDay = typeof body.dueDay === 'number' ? body.dueDay : Number(joined.slice(8, 10)) || 1
+
+      feePlan = body.feePlan || {
+        type: paymentType,
+        agreedTotalFee: totalFee,
+        monthlyFeeAmount: monthlyFee,
+        startDate: joined,
+      }
+    } else {
+      // Default standard values for teacher submission
+      totalFee = 18000 + classNum * 1200
+      paymentType = 'Monthly'
+      paid = 0
+      pending = totalFee
+      monthlyFee = Math.round(totalFee / 12)
+      dueDay = Number(joined.slice(8, 10)) || 1
+      feePlan = {
+        type: paymentType,
+        agreedTotalFee: totalFee,
+        monthlyFeeAmount: monthlyFee,
+        startDate: joined,
+      }
+    }
+
+    const db = getAdminDb()
+    const newStudentRef = db.collection('students').doc()
+    const studentId = newStudentRef.id
+    const nowISO = new Date().toISOString()
+
+    const studentRecord: any = {
+      id: studentId,
+      name,
+      class: classNum,
+      batch,
+      parentPhone,
+      parentName,
+      studentPhone,
+      whatsapp,
+      address,
+      notes,
+      joined,
+      status,
+      photoUrl,
+      totalFee,
+      paid,
+      pending,
+      paymentType,
+      feePlan,
+      feeSchedule,
+      monthlyFee,
+      dueDay,
+      createdAt: nowISO,
+      updatedAt: nowISO,
+      is_deleted: false,
+    }
+
+    await newStudentRef.set(studentRecord)
+
+    console.log(`[API Access] Successfully created student ID "${studentId}" (Name: ${name})`)
+
+    const sanitized = sanitizeFirestoreData(studentRecord)
+
+    // Hide financial values from response if teacher
+    if (role === 'Teacher') {
+      delete sanitized.totalFee
+      delete sanitized.paid
+      delete sanitized.pending
+      delete sanitized.paymentType
+      delete sanitized.feePlan
+      delete sanitized.feeSchedule
+      delete sanitized.monthlyFee
+      delete sanitized.dueDay
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: sanitized,
+    }, { status: 201 })
+  } catch (error: any) {
+    console.error('[API Error] POST /api/v1/students exception caught:', error)
+    return NextResponse.json(
+      { success: false, error: error.message || 'Unable to create student' },
+      { status: 500 }
+    )
+  }
+}
+
