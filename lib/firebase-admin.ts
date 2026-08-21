@@ -137,6 +137,119 @@ export async function verifySessionAndGetRole(req: NextRequest) {
     return { error: 'Empty token', status: 401 }
   }
 
+  // Detect token type by peeking at the JWT header algorithm
+  // Supabase uses ES256, Firebase uses RS256
+  let tokenAlgorithm = 'RS256'
+  try {
+    const headerB64 = token.split('.')[0]
+    const headerJson = Buffer.from(headerB64, 'base64url').toString('utf8')
+    const header = JSON.parse(headerJson)
+    tokenAlgorithm = header.alg || 'RS256'
+  } catch (_) {}
+
+  // --- Supabase JWT path (ES256) ---
+  if (tokenAlgorithm === 'ES256') {
+    try {
+      console.log('[Auth]: Detected Supabase JWT (ES256). Verifying via Supabase...')
+
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+      // Use Supabase REST API to validate token and get user
+      const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          apikey: supabaseAnonKey,
+        },
+      })
+
+      if (!userRes.ok) {
+        const errBody = await userRes.text()
+        console.error('[Supabase Token Verify Error]:', errBody)
+        return { error: 'Invalid or expired Supabase token', status: 401 }
+      }
+
+      const supabaseUser = await userRes.json()
+      const emailLower = (supabaseUser.email || '').toLowerCase().trim()
+
+      if (!emailLower) {
+        return { error: 'Supabase token does not contain email', status: 401 }
+      }
+
+      // Auto-approve owner email
+      if (emailLower === 'itatharvdubey@gmail.com') {
+        return {
+          uid: supabaseUser.id,
+          email: emailLower,
+          name: supabaseUser.user_metadata?.full_name || 'Owner',
+          role: 'Owner',
+          status: 'Active',
+        }
+      }
+
+      // Check Firestore users collection for role
+      const db = getAdminDb()
+      const userSnap = await db.collection('users').doc(emailLower).get()
+
+      if (!userSnap.exists) {
+        // Fallback: check Supabase staff table via REST API
+        const staffRes = await fetch(
+          `${supabaseUrl}/rest/v1/staff?email=ilike.${encodeURIComponent(emailLower)}&select=full_name,role,status`,
+          {
+            headers: {
+              apikey: supabaseAnonKey,
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        )
+
+        if (staffRes.ok) {
+          const staffList = await staffRes.json()
+          const staff = staffList?.[0]
+          if (staff && staff.status !== 'inactive') {
+            const roleMap: Record<string, string> = {
+              owner: 'Owner',
+              admin: 'Admin',
+              teacher: 'Teacher',
+              staff: 'Receptionist',
+            }
+            return {
+              uid: supabaseUser.id,
+              email: emailLower,
+              name: staff.full_name || emailLower,
+              role: roleMap[staff.role] || 'Teacher',
+              status: 'Active',
+            }
+          }
+        }
+
+        return { error: 'User is not registered in the application database', status: 403 }
+      }
+
+      const userData = userSnap.data()!
+      if (userData.status === 'Disabled') {
+        return { error: 'Your account is disabled. Please contact the owner.', status: 403 }
+      }
+
+      const validRoles = ['Owner', 'Admin', 'Teacher', 'Receptionist', 'Accountant']
+      if (!userData.role || !validRoles.includes(userData.role)) {
+        return { error: 'Unknown or invalid application role', status: 403 }
+      }
+
+      return {
+        uid: supabaseUser.id,
+        email: emailLower,
+        name: userData.name || supabaseUser.user_metadata?.full_name || 'User',
+        role: userData.role,
+        status: userData.status || 'Active',
+      }
+    } catch (err: any) {
+      console.error('[Supabase Token Verify Error]:', err)
+      return { error: err.message || 'Invalid or expired Supabase token', status: 401 }
+    }
+  }
+
+  // --- Firebase JWT path (RS256) ---
   try {
     const authClient = getAdminAuth()
     const decodedToken = await authClient.verifyIdToken(token)
