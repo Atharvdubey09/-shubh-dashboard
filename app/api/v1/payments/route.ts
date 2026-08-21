@@ -182,3 +182,75 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
+export async function GET(req: NextRequest) {
+  try {
+    console.log('[API Access] GET /api/v1/payments - Request received')
+
+    // 1. Authenticate & Resolve Role
+    const session = await verifySessionAndGetRole(req)
+    if ('error' in session) {
+      console.warn(`[API Access] Authentication failed: ${session.error}`)
+      return NextResponse.json(
+        { success: false, error: session.error },
+        { status: session.status || 401 }
+      )
+    }
+
+    const { email, role } = session
+    console.log(`[API Access] Authenticated user email: ${email}, resolved role: ${role}`)
+
+    // 2. Authorize Financial Roles (Block Teachers)
+    const allowedRoles = ['Owner', 'Admin', 'Accountant', 'Receptionist']
+    if (!allowedRoles.includes(role)) {
+      console.warn(`[API Access] User ${email} with role ${role} denied access to payments list`)
+      return NextResponse.json(
+        { success: false, error: 'Access denied' },
+        { status: 403 }
+      )
+    }
+
+    const { searchParams } = req.nextUrl
+    const limitQuery = searchParams.get('limit')
+    const limitNum = Math.min(parseInt(limitQuery || '100', 10), 200)
+
+    const db = getAdminDb()
+    const paymentsSnap = await db
+      .collection('payments')
+      .orderBy('date', 'desc')
+      .limit(limitNum)
+      .get()
+
+    const rawPayments: any[] = []
+    paymentsSnap.forEach(docSnap => {
+      const p = docSnap.data()
+      rawPayments.push({
+        id: docSnap.id,
+        studentId: p.studentId || '',
+        studentName: p.studentName || 'Unknown Student',
+        amount: typeof p.amount === 'number' ? p.amount : 0,
+        date: p.date || '',
+        label: p.label || 'Fee Payment',
+        status: p.status || 'paid',
+        paymentMode: p.paymentMode || 'Cash',
+        receiptNumber: p.receiptNumber || '',
+        notes: p.notes || '',
+        createdAt: p.createdAt || '',
+      })
+    })
+
+    const sanitized = sanitizeFirestoreData(rawPayments)
+
+    return NextResponse.json({
+      success: true,
+      data: sanitized,
+    })
+  } catch (error: any) {
+    console.error('[API Error] GET /api/v1/payments exception caught:', error)
+    return NextResponse.json(
+      { success: false, error: 'Unable to load payments' },
+      { status: 500 }
+    )
+  }
+}
+
