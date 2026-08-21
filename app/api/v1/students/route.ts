@@ -156,14 +156,26 @@ export async function GET(req: NextRequest) {
 
           // Role-based data sanitization (Teacher Financial Protection)
           if (role !== 'Teacher') {
-            rawStudent.totalFee = typeof data.totalFee === 'number' ? data.totalFee : 0
-            rawStudent.paid = typeof data.paid === 'number' ? data.paid : 0
-            rawStudent.pending = typeof data.pending === 'number' ? data.pending : 0
-            rawStudent.paymentType = data.paymentType || 'Monthly'
+            const classNum = typeof data.class === 'number' ? data.class : parseInt(String(data.class || '0'), 10)
+            const fallbackFee = classNum > 0 ? (18000 + classNum * 1200) : 24000
+            const calculatedTotal = typeof data.totalFee === 'number' && data.totalFee > 0
+              ? data.totalFee
+              : (typeof data.feePlan?.agreedTotalFee === 'number' && data.feePlan.agreedTotalFee > 0
+                  ? data.feePlan.agreedTotalFee
+                  : fallbackFee)
+            const calculatedPaid = typeof data.paid === 'number' ? data.paid : 0
+            const calculatedPending = typeof data.pending === 'number' && data.pending >= 0
+              ? data.pending
+              : Math.max(calculatedTotal - calculatedPaid, 0)
+
+            rawStudent.totalFee = calculatedTotal
+            rawStudent.paid = calculatedPaid
+            rawStudent.pending = calculatedPending
+            rawStudent.paymentType = data.paymentType || data.feePlan?.type || 'Monthly'
             rawStudent.feePlan = data.feePlan || null
             rawStudent.feeSchedule = data.feeSchedule || []
             rawStudent.promiseToPayDate = data.promiseToPayDate || null
-            rawStudent.monthlyFee = typeof data.monthlyFee === 'number' ? data.monthlyFee : null
+            rawStudent.monthlyFee = typeof data.monthlyFee === 'number' ? data.monthlyFee : Math.round(calculatedTotal / 12)
             rawStudent.dueDay = typeof data.dueDay === 'number' ? data.dueDay : null
           }
 
