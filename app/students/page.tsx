@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ChevronRight, Plus, Eye, Edit2, Trash2, KeyRound } from 'lucide-react'
+import { ChevronRight, Plus, Eye, Edit2, Trash2, KeyRound, Upload } from 'lucide-react'
 import { Card, PageHeader, StatusPill, Avatar } from '@/components/ui-bits'
 import { useAppData } from '@/components/state/app-data-provider'
 import { useAuth } from '@/components/state/auth-provider'
@@ -11,6 +11,7 @@ import { formatINR } from '@/lib/domain'
 import { cn } from '@/lib/utils'
 import { useMemo, useState } from 'react'
 import { useToast } from '@/components/ui/toast'
+import ImportStudentsDialog from '@/components/shell/import-students-dialog'
 
 export default function StudentsPage() {
   const { students, deleteStudent, loading } = useAppData()
@@ -20,6 +21,7 @@ export default function StudentsPage() {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'Full Payment' | 'Monthly' | 'Split'>('all')
+  const [importOpen, setImportOpen] = useState(false)
 
   const [gateOpen, setGateOpen] = useState(false)
   const [gateAction, setGateAction] = useState<'edit' | 'delete' | null>(null)
@@ -121,6 +123,14 @@ export default function StudentsPage() {
               <option value="Monthly">Monthly</option>
               <option value="Split">Split</option>
             </select>
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="flex h-10 items-center gap-1.5 rounded-full border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Upload className="h-4 w-4 text-muted-foreground" />
+              Import Students
+            </button>
             <button
               type="button"
               onClick={() => openQuickAdd({ tab: 'student' })}
@@ -301,6 +311,12 @@ export default function StudentsPage() {
             </div>
           </Card>
         </div>
+      )}
+      {importOpen && (
+        <ImportStudentsDialog
+          isOpen={importOpen}
+          onClose={() => setImportOpen(false)}
+        />
       )}
     </div>
   )
